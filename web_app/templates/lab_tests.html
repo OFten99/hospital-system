@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}检验管理 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Laboratory</div>
+    <h1>检验管理</h1>
+    <p>检验申请、结果录入与检验科数据汇总（对标小型 HIS 检验闭环）</p>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-card"><span>今日申请</span><strong>{{ summary.today_total }}</strong></div>
+  <div class="stat-card"><span>进行中（待检验/检验中）</span><strong>{{ summary.doing }}</strong></div>
+  <div class="stat-card"><span>已完成</span><strong>{{ summary.done }}</strong></div>
+  <div class="stat-card"><span>异常结果数</span><strong>{{ summary.abnormal }}</strong></div>
+</div>
+
+{% if current_user.role_code in ('DOCTOR', 'ADMIN') %}
+<div class="panel">
+  <h2>开具检验申请</h2>
+  <form method="post">
+    <input type="hidden" name="action" value="add_test">
+    <div class="form-grid">
+      <div class="field">
+        <label>患者<span>*</span></label>
+        <select name="patient_id" required>
+          <option value="">请选择患者</option>
+          {% for p in patients %}
+          <option value="{{ p.patient_id }}">{{ p.patient_name }}（{{ p.patient_no }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>开单医生<span>*</span></label>
+        <select name="doctor_id" required onchange="syncDept()">
+          {% for d in doctors %}
+          <option value="{{ d.doctor_id }}" data-dept="{{ d.department_id }}">{{ d.user_name }}（{{ d.department_name }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>开单科室<span>*</span></label>
+        <select name="department_id" required>
+          {% for d in doctors %}
+          <option value="{{ d.department_id }}">{{ d.department_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>关联挂号（可选）</label>
+        <select name="registration_id">
+          <option value="">不关联</option>
+          {% for r in regs %}
+          <option value="{{ r.registration_id }}">{{ r.reg_no }}｜{{ r.patient_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>标本类型<span>*</span></label>
+        <select name="sample_type" required>
+          <option value="血液">血液</option>
+          <option value="尿液">尿液</option>
+          <option value="粪便">粪便</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+    </div>
+    <h3 class="sub-title">选择检验项目<span>*</span></h3>
+    <div class="item-groups">
+      {% for cat, items_cat in items|groupby('item_category') %}
+      <div class="item-group">
+        <strong>{{ cat }}</strong>
+        <div class="item-checkboxes">
+          {% for it in items_cat %}
+          <label class="chk"><input type="checkbox" name="item_ids" value="{{ it.item_id }}">{{ it.item_name }}（{{ it.reference_range }} {{ it.unit or '' }}）</label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="form-actions">
+      <button type="submit">提交检验申请</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>按患者汇总（检验科数据汇总）</h2>
+  <div class="table-wrap small">
+    <table>
+      <thead>
+        <tr><th>患者</th><th>检验单数</th><th>已完成</th><th>异常结果数</th><th>最新检验单号</th><th>最新状态</th></tr>
+      </thead>
+      <tbody>
+        {% for ps in patient_summary %}
+        <tr>
+          <td>{{ ps.patient_name }}</td>
+          <td>{{ ps.test_count }}</td>
+          <td>{{ ps.done_count }}</td>
+          <td>{% if ps.abnormal_count > 0 %}<span class="badge warn">{{ ps.abnormal_count }}</span>{% else %}{{ ps.abnormal_count }}{% endif %}</td>
+          <td><code>{{ ps.latest_test_no or '-' }}</code></td>
+          <td><span class="badge">{{ ps.latest_status or '-' }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">暂无检验数据</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>检验单列表
+    <span class="filter-inline">
+      <a href="{{ url_for('lab_tests') }}" class="{{ 'muted' if not status else '' }}">全部</a>
+      <a href="{{ url_for('lab_tests', status='待检验') }}" class="{{ 'muted' if status != '待检验' else '' }}">待检验</a>
+      <a href="{{ url_for('lab_tests', status='检验中') }}" class="{{ 'muted' if status != '检验中' else '' }}">检验中</a>
+      <a href="{{ url_for('lab_tests', status='已完成') }}" class="{{ 'muted' if status != '已完成' else '' }}">已完成</a>
+      <a href="{{ url_for('lab_tests', status='已作废') }}" class="{{ 'muted' if status != '已作废' else '' }}">已作废</a>
+    </span>
+  </h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>检验单号</th><th>患者</th><th>开单医生</th><th>科室</th><th>标本</th>
+          <th>费用（收费）</th>
+          <th>项目（已出）</th><th>状态</th><th>开单时间</th><th>完成时间</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in rows %}
+        <tr>
+          <td><code>{{ t.test_no }}</code></td>
+          <td>{{ t.patient_name }}</td>
+          <td>{{ t.doctor_name }}</td>
+          <td>{{ t.department_name }}</td>
+          <td>{{ t.sample_type }}</td>
+          <td>{{ '%.2f'|format(t.total_fee or 0) }} <span class="badge">{{ t.pay_status }}</span></td>
+          <td>{{ t.item_count }}（{{ t.result_count }}）</td>
+          <td><span class="badge">{{ t.test_status }}</span></td>
+          <td>{{ t.ordered_at.strftime('%Y-%m-%d %H:%M') if t.ordered_at else '-' }}</td>
+          <td>{{ t.completed_at.strftime('%Y-%m-%d %H:%M') if t.completed_at else '-' }}</td>
+          <td class="ops">
+            <a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">查看结果</a>
+            {% if t.test_status in ('待检验', '检验中') and current_user.role_code in ('LAB_TECH', 'ADMIN') %}
+            <a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">录入结果</a>
+            <form method="post" class="inline-form" onsubmit="return confirm('确定作废该检验单？')">
+              <input type="hidden" name="action" value="cancel_test">
+              <input type="hidden" name="test_id" value="{{ t.test_id }}">
+              <button class="danger-btn" type="submit">作废</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11">暂无检验单</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function syncDept() {
+  var sel = document.querySelector('select[name="doctor_id"]');
+  var opt = sel.options[sel.selectedIndex];
+  var dept = document.querySelector('select[name="department_id"]');
+  if (opt && opt.dataset.dept) {
+    dept.value = opt.dataset.dept;
+  }
+}
+</script>
+{% endblock %}

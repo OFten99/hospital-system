@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}体征记录 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Vital Signs</div>
+    <h1>体征记录</h1>
+    <p>医生为患者录入体温、血压、心率等各项体征数据，形成体征历史</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>录入体征</h2>
+  <form method="post" class="grid-form">
+    <input type="hidden" name="action" value="add">
+    <div class="form-grid">
+      <div class="field">
+        <label>患者<span>*</span></label>
+        <select name="patient_id" required>
+          <option value="">请选择患者</option>
+          {% for p in patients %}
+          <option value="{{ p.patient_id }}">{{ p.patient_name }}（{{ p.patient_no }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>关联挂号（可选）</label>
+        <select name="registration_id">
+          <option value="">不关联</option>
+          {% for r in regs %}
+          <option value="{{ r.registration_id }}">{{ r.reg_no }}｜{{ r.patient_name }}（{{ r.visit_status }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>体温（℃）</label>
+        <input type="number" name="temperature" step="0.1" min="30" max="45" placeholder="36.5">
+      </div>
+      <div class="field">
+        <label>收缩压（mmHg）</label>
+        <input type="number" name="systolic_pressure" min="40" max="300" placeholder="120">
+      </div>
+      <div class="field">
+        <label>舒张压（mmHg）</label>
+        <input type="number" name="diastolic_pressure" min="30" max="200" placeholder="80">
+      </div>
+      <div class="field">
+        <label>心率（次/分）</label>
+        <input type="number" name="heart_rate" min="20" max="250" placeholder="75">
+      </div>
+      <div class="field">
+        <label>呼吸（次/分）</label>
+        <input type="number" name="respiration_rate" min="5" max="80" placeholder="18">
+      </div>
+      <div class="field">
+        <label>体重（kg）</label>
+        <input type="number" name="weight" step="0.01" min="1" max="400" placeholder="60.00">
+      </div>
+      <div class="field">
+        <label>身高（cm）</label>
+        <input type="number" name="height" step="0.01" min="30" max="250" placeholder="170.00">
+      </div>
+      <div class="field wide">
+        <label>备注</label>
+        <input type="text" name="note" maxlength="200" placeholder="如：就诊时测得，患者主诉头晕">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit">保存体征记录</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>体征历史（{{ rows|length }} 条）</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>记录时间</th><th>患者</th><th>录入人</th><th>体温（℃）</th><th>血压（mmHg）</th>
+          <th>心率</th><th>呼吸</th><th>体重（kg）</th><th>身高（cm）</th><th>备注</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.record_time.strftime('%Y-%m-%d %H:%M') if r.record_time else '-' }}</td>
+          <td>{{ r.patient_name }}</td>
+          <td>{{ r.operator_name }}</td>
+          <td>{{ r.temperature if r.temperature is not none else '-' }}</td>
+          <td>
+            {% if r.systolic_pressure or r.diastolic_pressure %}
+              {{ r.systolic_pressure or '-' }}/{{ r.diastolic_pressure or '-' }}
+            {% else %}-{% endif %}
+          </td>
+          <td>{{ r.heart_rate if r.heart_rate is not none else '-' }}</td>
+          <td>{{ r.respiration_rate if r.respiration_rate is not none else '-' }}</td>
+          <td>{{ r.weight if r.weight is not none else '-' }}</td>
+          <td>{{ r.height if r.height is not none else '-' }}</td>
+          <td>{{ r.note or '-' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10">暂无体征记录，请先在上方录入。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}检验结果 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Lab Result</div>
+    <h1>检验单详情</h1>
+    <p>检验项目结果查看与录入</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>检验单信息</h2>
+  <div class="detail-grid">
+    <div><span>检验单号</span><strong><code>{{ test.test_no }}</code></strong></div>
+    <div><span>患者</span><strong>{{ test.patient_name }}</strong></div>
+    <div><span>开单医生</span><strong>{{ test.doctor_name }}</strong></div>
+    <div><span>科室</span><strong>{{ test.department_name }}</strong></div>
+    <div><span>标本类型</span><strong>{{ test.sample_type }}</strong></div>
+    <div><span>状态</span><strong><span class="badge">{{ test.test_status }}</span></strong></div>
+    <div><span>开单时间</span><strong>{{ test.ordered_at.strftime('%Y-%m-%d %H:%M') if test.ordered_at else '-' }}</strong></div>
+    <div><span>完成时间</span><strong>{{ test.completed_at.strftime('%Y-%m-%d %H:%M') if test.completed_at else '-' }}</strong></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>检验项目结果（已出 {{ test.result_count }}/{{ test.item_count }}）</h2>
+  {% if can_edit %}
+  <form method="post">
+    <input type="hidden" name="action" value="record">
+  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>项目分类</th><th>项目名称</th><th>单位</th><th>参考范围</th>
+          <th>结果值</th><th>结果标志</th><th>备注</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td>{{ it.item_category }}</td>
+          <td>{{ it.item_name }}</td>
+          <td>{{ it.unit or '-' }}</td>
+          <td>{{ it.reference_range or '-' }}</td>
+          <td>
+            {% if can_edit %}
+            <input type="text" name="result_{{ it.result_id }}" value="{{ it.result_value or '' }}"
+                   placeholder="待检验" maxlength="50">
+            {% elif it.result_value %}
+            <strong>{{ it.result_value }}</strong>
+            {% else %}<span class="muted">未出</span>{% endif %}
+          </td>
+          <td>
+            {% if can_edit %}
+            <select name="flag_{{ it.result_id }}">
+              {% for f in ['正常', '偏高', '偏低', '异常'] %}
+              <option value="{{ f }}" {{ 'selected' if it.result_flag == f else '' }}>{{ f }}</option>
+              {% endfor %}
+            </select>
+            {% elif it.result_value %}
+            <span class="badge {{ 'warn' if it.result_flag != '正常' else '' }}">{{ it.result_flag }}</span>
+            {% else %}-{% endif %}
+          </td>
+          <td>
+            {% if can_edit %}
+            <input type="text" name="note_{{ it.result_id }}" value="{{ it.result_note or '' }}" maxlength="200">
+            {% else %}{{ it.result_note or '-' }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if can_edit %}
+    <div class="form-actions">
+      <button type="submit">保存检验结果</button>
+      <span class="hint">保存后状态自动流转：全部项目出结果即"已完成"</span>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

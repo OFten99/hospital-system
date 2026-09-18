@@ -1107,7 +1107,7 @@ def users():
             elif action == "toggle_status":
                 execute(
                     "UPDATE users SET account_status = IF(account_status = '启用', '停用', '启用') WHERE user_id = %s",
-                    (int(request.form["user_id"]),),
+                    (int(request.form["user_id"])),
                 )
                 flash("账号状态已更新。", "success")
             elif action == "delete_user":
@@ -1115,6 +1115,10 @@ def users():
                 if target_id == int(user["user_id"]):
                     flash("不能删除当前登录账号。", "error")
                 else:
+                    # 先清理医生附属档案（新建医生账号会自动生成档案，若不清理会触发外键拦截）
+                    execute("DELETE FROM doctors WHERE user_id = %s", (target_id,))
+                    # 清理该账号产生的操作日志（登录/注册留痕，非业务单据）
+                    execute("DELETE FROM operation_logs WHERE user_id = %s", (target_id,))
                     execute("DELETE FROM users WHERE user_id = %s", (target_id,))
                     flash("账号已删除。", "success")
         except mysql.connector.Error as error:

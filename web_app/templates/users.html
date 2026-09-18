@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}用户管理 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Users</div>
+    <h1>用户管理</h1>
+    <p>超级用户为挂号员、医生、收费员、检验技师、药房人员等注册新账号</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>注册新账号</h2>
+  <form method="post">
+    <input type="hidden" name="action" value="add_user">
+    <div class="form-grid">
+      <div class="field">
+        <label>姓名<span>*</span></label>
+        <input type="text" name="user_name" required placeholder="如：挂号员小张">
+      </div>
+      <div class="field">
+        <label>工号</label>
+        <input type="text" name="user_no" placeholder="留空自动生成">
+      </div>
+      <div class="field">
+        <label>用户名（登录名）<span>*</span></label>
+        <input type="text" name="username" required placeholder="如：reg02">
+      </div>
+      <div class="field">
+        <label>初始密码<span>*</span></label>
+        <input type="text" name="password" required placeholder="如：123456">
+      </div>
+      <div class="field">
+        <label>性别<span>*</span></label>
+        <select name="gender" required>
+          <option value="男">男</option>
+          <option value="女">女</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>角色<span>*</span></label>
+        <select name="role_id" required onchange="toggleDoctorFields()">
+          {% for r in roles %}
+          <option value="{{ r.role_id }}" data-code="{{ r.role_code }}">{{ r.role_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>科室</label>
+        <select name="department_id">
+          <option value="">不指定</option>
+          {% for d in depts %}
+          <option value="{{ d.department_id }}">{{ d.department_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>联系电话</label>
+        <input type="text" name="phone" maxlength="20" placeholder="手机号">
+      </div>
+      <div class="field doctor-field">
+        <label>职称（医生）</label>
+        <select name="title">
+          <option value="主治医师">主治医师</option>
+          <option value="副主任医师">副主任医师</option>
+          <option value="主任医师">主任医师</option>
+          <option value="住院医师">住院医师</option>
+        </select>
+      </div>
+      <div class="field doctor-field">
+        <label>专长（医生）</label>
+        <input type="text" name="specialty" placeholder="如：心血管内科">
+      </div>
+      <div class="field doctor-field">
+        <label>挂号费（元，医生）</label>
+        <input type="number" name="consultation_fee" step="0.01" min="0" value="25.00">
+      </div>
+      <div class="field doctor-field">
+        <label>日号源上限（医生）</label>
+        <input type="number" name="max_daily_registrations" min="1" max="200" value="30">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit">注册账号</button>
+      <span class="hint">选择"医生"角色时需填写科室、职称、挂号费等医生档案信息</span>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>系统用户（{{ rows|length }} 人）</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>工号</th><th>姓名</th><th>登录名</th><th>角色</th><th>科室</th><th>状态</th>
+          <th>最后登录</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in rows %}
+        <tr>
+          <td><code>{{ u.user_no }}</code></td>
+          <td>{{ u.user_name }}</td>
+          <td>{{ u.username }}</td>
+          <td><span class="badge">{{ u.role_name }}</span></td>
+          <td>{{ u.department_name or '-' }}</td>
+          <td><span class="badge {{ 'warn' if u.account_status == '停用' else '' }}">{{ u.account_status }}</span></td>
+          <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '从未登录' }}</td>
+          <td class="ops">
+            <form method="post" class="inline-form" onsubmit="return confirm('重置密码为 123456？')">
+              <input type="hidden" name="action" value="reset_pwd">
+              <input type="hidden" name="user_id" value="{{ u.user_id }}">
+              <input type="hidden" name="new_password" value="123456">
+              <button class="secondary-btn" type="submit">重置密码</button>
+            </form>
+            <form method="post" class="inline-form">
+              <input type="hidden" name="action" value="toggle_status">
+              <input type="hidden" name="user_id" value="{{ u.user_id }}">
+              <button class="secondary-btn" type="submit">{{ '启用' if u.account_status == '停用' else '停用' }}</button>
+            </form>
+            <form method="post" class="inline-form" onsubmit="return confirm('确定删除该账号？')">
+              <input type="hidden" name="action" value="delete_user">
+              <input type="hidden" name="user_id" value="{{ u.user_id }}">
+              <button class="danger-btn" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function toggleDoctorFields() {
+  var sel = document.querySelector('select[name="role_id"]');
+  var opt = sel.options[sel.selectedIndex];
+  var isDoctor = opt && opt.dataset.code === 'DOCTOR';
+  document.querySelectorAll('.doctor-field').forEach(function (el) {
+    el.style.display = isDoctor ? '' : 'none';
+  });
+}
+toggleDoctorFields();
+</script>
+{% endblock %}

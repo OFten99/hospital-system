@@ -365,17 +365,56 @@ def registrations():
 @login_required
 @permission_required("schedules")
 def schedules():
+    user = current_user()
+    # 医生角色只能维护自己的排班：取当前登录用户对应的医生档案
+    is_doctor = user["role_code"] == "DOCTOR"
+    my_doctor_id = None
+    my_doctor_name = None
+    if is_doctor:
+        my_row = fetch_one(
+            """
+            SELECT d.doctor_id, d.doctor_no, u.user_name AS doctor_name, dept.department_name, d.title
+            FROM doctors d
+            JOIN users u ON d.user_id = u.user_id
+            JOIN departments dept ON u.department_id = dept.department_id
+            WHERE d.user_id = %s
+            """,
+            (user["user_id"],),
+        )
+        my_doctor_id = my_row["doctor_id"] if my_row else None
+        my_doctor_no = my_row["doctor_no"] if my_row else None
+        my_doctor_name = my_row["doctor_name"] if my_row else None
+    else:
+        my_doctor_no = None
+
+    def _schedule_belongs_to_me(schedule_id):
+        """医生操作排班前校验归属：只能操作自己的排班"""
+        if not is_doctor:
+            return True
+        owner = fetch_one(
+            "SELECT doctor_id FROM doctor_schedules WHERE schedule_id = %s", (schedule_id,)
+        )
+        return bool(owner and my_doctor_id and owner["doctor_id"] == my_doctor_id)
+
     if request.method == "POST":
         action = request.form.get("action")
         try:
             if action == "add":
+                # 医生只能给自己排班：doctor_id 强制取当前账号档案，忽略表单提交值
+                if is_doctor:
+                    if not my_doctor_id:
+                        flash("当前账号未关联医生档案，无法排班。", "error")
+                        return redirect(url_for("schedules"))
+                    doctor_id = my_doctor_id
+                else:
+                    doctor_id = int(request.form["doctor_id"])
                 execute(
                     """
                     INSERT INTO doctor_schedules (doctor_id, work_date, shift_type, clinic_room, max_registrations)
                     VALUES (%s, %s, %s, %s, %s)
                     """,
                     (
-                        request.form["doctor_id"],
+                        doctor_id,
                         request.form["work_date"],
                         request.form["shift_type"],
                         request.form.get("clinic_room") or None,
@@ -384,27 +423,48 @@ def schedules():
                 )
                 flash("排班创建成功。", "success")
             elif action == "status":
+                schedule_id = int(request.form["schedule_id"])
+                if not _schedule_belongs_to_me(schedule_id):
+                    flash("只能操作自己的排班。", "error")
+                    return redirect(url_for("schedules"))
                 execute(
                     "UPDATE doctor_schedules SET schedule_status = %s WHERE schedule_id = %s",
-                    (request.form["schedule_status"], request.form["schedule_id"]),
+                    (request.form["schedule_status"], schedule_id),
                 )
                 flash("排班状态已更新。", "success")
             elif action == "delete":
-                execute("DELETE FROM doctor_schedules WHERE schedule_id = %s", (request.form["schedule_id"],))
+                schedule_id = int(request.form["schedule_id"])
+                if not _schedule_belongs_to_me(schedule_id):
+                    flash("只能操作自己的排班。", "error")
+                    return redirect(url_for("schedules"))
+                execute("DELETE FROM doctor_schedules WHERE schedule_id = %s", (schedule_id,))
                 flash("排班已删除。", "success")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
+        except ValueError:
+            flash("提交参数格式错误，请检查后重试。", "error")
         return redirect(url_for("schedules"))
 
     work_date = request.args.get("work_date") or datetime.now().strftime("%Y-%m-%d")
-    rows = fetch_all(
-        """
-        SELECT * FROM v_doctor_schedule
-        WHERE work_date = %s
-        ORDER BY department_name, shift_type
-        """,
-        (work_date,),
-    )
+    if is_doctor:
+        # 医生只能看到自己的排班（视图无 doctor_id，用医生工号过滤）
+        rows = fetch_all(
+            """
+            SELECT * FROM v_doctor_schedule
+            WHERE work_date = %s AND doctor_no = %s
+            ORDER BY shift_type
+            """,
+            (work_date, my_doctor_no),
+        )
+    else:
+        rows = fetch_all(
+            """
+            SELECT * FROM v_doctor_schedule
+            WHERE work_date = %s
+            ORDER BY department_name, shift_type
+            """,
+            (work_date,),
+        )
     doctors = fetch_all(
         """
         SELECT d.doctor_id, u.user_name AS doctor_name, dept.department_name, d.title, d.consultation_fee
@@ -414,7 +474,8 @@ def schedules():
         ORDER BY dept.department_id, d.doctor_id
         """
     )
-    return render_template("schedules.html", rows=rows, doctors=doctors, work_date=work_date)
+    return render_template("schedules.html", rows=rows, doctors=doctors, work_date=work_date,
+                           is_doctor=is_doctor, my_doctor_name=my_doctor_name)
 
 
 # ============================================================

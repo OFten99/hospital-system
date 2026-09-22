@@ -351,8 +351,8 @@ def verify(conf):
                 all_ok = False
             print(f"  {flag} {label:<8} 期望 {exp:>3}  实际 {act:>3}")
 
-        # 抽查一条业务数据，确认种子数据也灌进去了
-        cursor.execute("SELECT COUNT(*) FROM patient")
+        # 抽查两条业务数据，确认种子数据也灌进去了
+        cursor.execute("SELECT COUNT(*) FROM patients")
         patients = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM users")
         users = cursor.fetchone()[0]

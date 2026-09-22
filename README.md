@@ -56,7 +56,13 @@ run_web.bat   # 或 cd web_app && python app.py
 配合免费云 MySQL 即可让任何人通过网址访问，**数据库的存储过程与触发器原样保留**。
 
 ```bash
-python build_edgeone.py     # 把 web_app/ 同步到 cloud-functions/（改过代码后必跑）
+# 1. 把数据库导到云端（首次运行会引导填写连接信息，存入 my_cloud_db.cnf）
+python deploy_cloud_db.py           # 或双击 deploy_cloud_db.bat
+
+# 2. 同步云函数目录（改过 web_app/ 代码后必跑）
+python build_edgeone.py
+
+# 3. 推送，EdgeOne 自动构建部署
 git add . && git commit -m "更新" && git push
 ```
 
@@ -79,6 +85,7 @@ git add . && git commit -m "更新" && git push
 ├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析，支持云端 --ssl）
 ├── deploy_cloud_db.py            # 云端数据库一键部署（连接测试 → 权限预检 → 导入 → 校验）
 ├── deploy_cloud_db.bat           # 上面脚本的 Windows 双击入口
+├── edit_db_config.bat            # 用记事本打开 my_cloud_db.cnf 填连接信息
 ├── build_edgeone.py              # 生成 EdgeOne Pages 部署包
 ├── check_env.py                  # 环境自检
 ├── verify_hospital.py            # Web 端到端回归验证

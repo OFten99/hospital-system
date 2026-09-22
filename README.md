@@ -52,7 +52,7 @@ run_web.bat   # 或 cd web_app && python app.py
 
 ## 部署到公网（免费）
 
-项目已适配 **腾讯云 EdgeOne Pages**（Python 云函数，原生支持 Flask 框架），
+项目已适配 **腾讯云 EdgeOne Makers**（原 EdgeOne Pages，Python 云函数，原生支持 Flask 框架），
 配合免费云 MySQL 即可让任何人通过网址访问，**数据库的存储过程与触发器原样保留**。
 
 ```bash
@@ -66,7 +66,10 @@ python build_edgeone.py
 git add . && git commit -m "更新" && git push
 ```
 
-之后在 EdgeOne Pages 控制台导入本仓库即可自动构建部署。
+之后在 EdgeOne Makers 控制台（console.tencentcloud.com/edgeone）导入本仓库即可自动构建部署。
+
+> 注：平台免费分配的 `xxx.edgeone.site` 项目域名在中国大陆访问时**只提供 3 小时有效的
+> 预览链接**（超时返回 401），想让链接长期可用需绑定自己的域名。详见部署文档第八之二节。
 
 完整步骤（免费 MySQL 创建、SQL 导入、环境变量配置、报错排查）见
 **[docs/部署到公网_EdgeOne.md](docs/部署到公网_EdgeOne.md)**。
@@ -76,7 +79,7 @@ git add . && git commit -m "更新" && git push
 ```
 ├── sql/                          # 数据库脚本（01 建库 ~ 07 测试数据，08 检验科+体征，09 任务书补全，10 预约挂号，11 公告）
 ├── web_app/                      # Flask Web 后端（app.py + 22 个模板 + 样式，本地开发源码）
-├── cloud-functions/              # EdgeOne Pages 云函数目录（由 build_edgeone.py 自动生成，勿手改）
+├── cloud-functions/              # EdgeOne Makers 云函数目录（由 build_edgeone.py 自动生成，勿手改）
 ├── docs/
 │   ├── 部署到公网_EdgeOne.md              # 免费部署到公网的完整步骤
 │   ├── screenshots/                     # 系统运行截图（最新）
@@ -86,7 +89,7 @@ git add . && git commit -m "更新" && git push
 ├── deploy_cloud_db.py            # 云端数据库一键部署（连接测试 → 权限预检 → 导入 → 校验）
 ├── deploy_cloud_db.bat           # 上面脚本的 Windows 双击入口
 ├── edit_db_config.bat            # 用记事本打开 my_cloud_db.cnf 填连接信息
-├── build_edgeone.py              # 生成 EdgeOne Pages 部署包
+├── build_edgeone.py              # 生成 EdgeOne Makers 部署包
 ├── check_env.py                  # 环境自检
 ├── verify_hospital.py            # Web 端到端回归验证
 ├── gen_testcases.py / gen_xmind.py

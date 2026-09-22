@@ -1,0 +1,4 @@
+# EdgeOne Pages 云函数依赖（本文件由 build_edgeone.py 生成）
+# 与 web_app/requirements.txt 保持一致
+Flask>=3.0.0
+mysql-connector-python>=8.3.0

@@ -1,3 +1,16 @@
+# -*- coding: utf-8 -*-
+# ============================================================================
+# 本文件由 build_edgeone.py 从 web_app/app.py 自动生成，请勿直接修改。
+# 需要改动请编辑 web_app/app.py，然后运行： python build_edgeone.py
+# ============================================================================
+import os as _os
+import sys as _sys
+
+_HERE = _os.path.dirname(_os.path.abspath(__file__))
+if _HERE not in _sys.path:
+    _sys.path.insert(0, _HERE)
+
+
 """
 医院门诊管理系统（对标小型 HIS 门诊业务）Web 版。
 启动方式：python app.py

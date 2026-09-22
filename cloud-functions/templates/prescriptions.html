@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}处方开具 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>处方开具</h1>
+    <p>医生为今日挂号患者开方，自动校验药品库存并计算金额</p>
+  </div>
+</div>
+
+<div class="form-card wide-form">
+  <h2>开具新处方</h2>
+  <form method="post" id="pres-form">
+    <input type="hidden" name="action" value="issue">
+    <div class="form-grid">
+      <label>就诊挂号（今日待就诊/就诊中患者）
+        <select name="registration_id" required>
+          <option value="">-- 选择挂号记录 --</option>
+          {% for r in registerable %}
+          <option value="{{ r.registration_id }}">【{{ r.visit_status }}】{{ r.reg_no }} {{ r.patient_name }} → {{ r.department_name }} {{ r.doctor_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if is_doctor %}
+      <label>开方医生
+        <input type="text" value="{{ my_doctor_name }}" disabled>
+        <span class="hint" style="font-size:12px;color:#888">医生只能以本人名义开方</span>
+      </label>
+      {% else %}
+      <label>开方医生
+        <select name="doctor_id" required>
+          {% for d in doctors %}
+          <option value="{{ d.doctor_id }}">{{ d.department_name }} {{ d.doctor_name }}（{{ d.doctor_id }}）</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </div>
+    <input type="hidden" name="patient_id" id="patient_id" value="">
+    <h2 style="margin-top:22px">药品明细</h2>
+    <div class="table-wrap" style="margin-bottom:14px">
+      <table id="items-table">
+        <thead>
+          <tr><th style="width:42%">药品</th><th>数量</th><th>单价（元）</th><th>用法用量</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr class="item-row">
+            <td>
+              <select name="medicine_id[]" class="medicine-select" required>
+                <option value="">-- 选择药品 --</option>
+                {% for m in medicines %}
+                <option value="{{ m.medicine_id }}" data-price="{{ m.unit_price }}">{{ m.medicine_name }}（{{ m.specification }}，库存{{ m.stock_quantity }}）</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input name="quantity[]" type="number" class="qty" value="1" min="1" required></td>
+            <td class="price">-</td>
+            <td><input name="dosage[]" placeholder="如 每日3次，每次1粒"></td>
+            <td><button type="button" class="danger-btn" onclick="removeRow(this)">移除</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="actions">
+      <button type="button" class="secondary-btn" onclick="addRow()">+ 添加药品</button>
+      <button type="submit">提交处方（待收费）</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>今日就诊队列</h2>
+  <p style="color:var(--muted);font-size:13px;margin:4px 0 12px">接诊后患者状态更新为"就诊中"，诊疗完毕点击"完成就诊"更新为"已就诊"。</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>排队号</th><th>挂号单号</th><th>患者</th><th>科室</th><th>医生</th><th>号别</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for q in visit_queue %}
+        <tr>
+          <td>{{ q.queue_no }}</td>
+          <td><code>{{ q.reg_no }}</code></td>
+          <td>{{ q.patient_name }}</td>
+          <td>{{ q.department_name }}</td>
+          <td>{{ q.doctor_name }}</td>
+          <td><span class="badge">{{ q.reg_type }}</span></td>
+          <td>{{ q.visit_status }}</td>
+          <td>
+            <div class="actions">
+              {% if q.visit_status == '待就诊' %}
+              <form class="inline-form" method="post">
+                <input type="hidden" name="action" value="start_visit">
+                <input type="hidden" name="registration_id" value="{{ q.registration_id }}">
+                <button type="submit">开始接诊</button>
+              </form>
+              {% elif q.visit_status == '就诊中' %}
+              <form class="inline-form" method="post">
+                <input type="hidden" name="action" value="finish_visit">
+                <input type="hidden" name="registration_id" value="{{ q.registration_id }}">
+                <button type="submit">完成就诊</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8">今日暂无待接诊患者</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>处方列表</h2>
+  <div class="actions" style="margin-bottom:14px">
+    <a class="secondary-btn" href="{{ url_for('prescriptions') }}">全部</a>
+    <a class="secondary-btn" href="{{ url_for('prescriptions', status='待收费') }}">待收费</a>
+    <a class="secondary-btn" href="{{ url_for('prescriptions', status='已收费') }}">已收费</a>
+    <a class="secondary-btn" href="{{ url_for('prescriptions', status='已退费') }}">已退费</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>处方号</th><th>患者</th><th>医生</th><th>科室</th><th>开方日期</th><th>金额</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><code>{{ row.prescription_no }}</code></td>
+          <td>{{ row.patient_name }}</td>
+          <td>{{ row.doctor_name }}</td>
+          <td>{{ row.department_name }}</td>
+          <td>{{ row.prescribe_date }}</td>
+          <td>{{ '%.2f'|format(row.total_amount or 0) }}</td>
+          <td><span class="badge">{{ row.prescription_status }}</span></td>
+          <td>
+            {% if row.prescription_status == '待收费' %}
+            <form class="inline-form" method="post" onsubmit="return confirm('确定作废该处方？')">
+              <input type="hidden" name="action" value="void">
+              <input type="hidden" name="prescription_id" value="{{ row.prescription_id }}">
+              <button class="danger-btn" type="submit">作废</button>
+            </form>
+            {% else %}-{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8">暂无处方数据</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function addRow() {
+  const tbody = document.querySelector('#items-table tbody');
+  const first = tbody.querySelector('.item-row');
+  const clone = first.cloneNode(true);
+  clone.querySelector('.qty').value = 1;
+  clone.querySelectorAll('input').forEach(i => i.value = '');
+  clone.querySelector('.price').textContent = '-';
+  tbody.appendChild(clone);
+  bindChange(clone);
+}
+function removeRow(btn) {
+  const tbody = document.querySelector('#items-table tbody');
+  if (tbody.querySelectorAll('.item-row').length > 1) {
+    btn.closest('.item-row').remove();
+  } else {
+    alert('至少保留一行药品明细');
+  }
+}
+function bindChange(row) {
+  const sel = row.querySelector('.medicine-select');
+  const qty = row.querySelector('.qty');
+  const price = row.querySelector('.price');
+  const calc = () => {
+    const opt = sel.options[sel.selectedIndex];
+    const p = opt && opt.dataset.price ? parseFloat(opt.dataset.price) : 0;
+    const q = parseInt(qty.value) || 0;
+    price.textContent = (p * q).toFixed(2);
+  };
+  sel.addEventListener('change', calc);
+  qty.addEventListener('input', calc);
+}
+document.querySelectorAll('.item-row').forEach(bindChange);
+</script>
+{% endblock %}

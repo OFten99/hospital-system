@@ -77,6 +77,8 @@ git add . && git commit -m "更新" && git push
 │   ├── 黑盒测试用例_医院门诊管理系统.csv   # 50 条黑盒用例（禅道导入格式）
 │   └── 医院门诊管理系统需求分析.xmind       # 需求思维导图
 ├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析，支持云端 --ssl）
+├── deploy_cloud_db.py            # 云端数据库一键部署（连接测试 → 权限预检 → 导入 → 校验）
+├── deploy_cloud_db.bat           # 上面脚本的 Windows 双击入口
 ├── build_edgeone.py              # 生成 EdgeOne Pages 部署包
 ├── check_env.py                  # 环境自检
 ├── verify_hospital.py            # Web 端到端回归验证

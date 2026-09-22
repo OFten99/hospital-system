@@ -19,6 +19,10 @@ _final_err.txt
 
 # 本地配置（含数据库口令，禁止上传）
 my_his.cnf
+.env
+
+# 运行时产生的导出文件
+web_app/exports/
 
 # 论文与上传暂存目录
 report/

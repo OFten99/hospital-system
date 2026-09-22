@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}预约取号 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>预约取号</h1>
+    <p>确认预约信息后转正式挂号，挂号费实时收取</p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="patient-card" style="display:flex;flex-wrap:wrap;gap:8px 24px;padding:16px 18px;background:#fafafa;border:1px solid var(--rule);border-radius:14px;margin-bottom:18px">
+    <div><strong>{{ appt.patient_name }}</strong></div>
+    <div>预约流水号：<code>{{ appt.appointment_no }}</code></div>
+    <div>科室：{{ appt.department_name }} · {{ appt.doctor_name }}</div>
+    <div>就诊日期：{{ appt.appointment_date }} {{ appt.shift_type }}</div>
+    <div>诊室：{{ appt.clinic_room or '待分配' }}</div>
+    <div>号别：{{ appt.reg_type }}</div>
+    <div>挂号费：{{ '%.2f'|format(appt.consultation_fee) }} 元</div>
+    <div>挂号时限：{{ appt.expire_time.strftime('%Y-%m-%d %H:%M') }} 前</div>
+  </div>
+
+  {% if can_checkin %}
+  <form method="post" style="max-width:420px">
+    <div class="form-grid">
+      <label>支付方式
+        <select name="pay_method">
+          <option value="微信">微信</option>
+          <option value="支付宝">支付宝</option>
+          <option value="现金">现金</option>
+          <option value="医保">医保</option>
+        </select>
+      </label>
+    </div>
+    <button type="submit" style="margin-top:14px">确认取号并支付</button>
+  </form>
+  {% else %}
+  <div class="flash error">
+    该预约当前不能取号：{% if appt.status != '已预约' %}预约状态为「{{ appt.status }}」。{% else %}已超过挂号时限。{% endif %}
+  </div>
+  <a class="secondary-btn" href="{{ url_for('appointments') }}">返回预约列表</a>
+  {% endif %}
+</div>
+{% endblock %}

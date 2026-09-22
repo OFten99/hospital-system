@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}公告 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>公告</h1>
+    <p>医院通知与系统公告{% if is_admin %}（管理员可发布/删除）{% endif %}</p>
+  </div>
+</div>
+
+{% if is_admin %}
+<div class="form-card wide-form">
+  <h2>发布新公告</h2>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="action" value="publish">
+    <label>标题
+      <input name="title" placeholder="公告标题" required maxlength="100">
+    </label>
+    <label style="grid-column:1 / -1">内容
+      <textarea name="content" rows="4" placeholder="公告正文" required></textarea>
+    </label>
+    <div style="grid-column:1 / -1"><button type="submit">发布公告</button></div>
+  </form>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>公告列表</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th style="width:18%">标题</th><th>内容</th><th style="width:16%">发布人</th><th style="width:16%">发布时间</th>{% if is_admin %}<th style="width:10%">操作</th>{% endif %}</tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><strong>{{ r.title }}</strong></td>
+          <td>{{ r.content }}</td>
+          <td>{{ r.publisher_name }}</td>
+          <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          {% if is_admin %}
+          <td>
+            <form class="inline-form" method="post" onsubmit="return confirm('确认删除该公告？')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="announcement_id" value="{{ r.announcement_id }}">
+              <button class="danger-btn" type="submit">删除</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{% if is_admin %}5{% else %}4{% endif %}">暂无公告</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

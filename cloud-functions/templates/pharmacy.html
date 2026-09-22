@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}发药管理 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>发药管理</h1>
+    <p>针对已完成收费的处方发药（库存于收费时扣减，发药时复核）</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>待发药处方（{{ pending|length }} 张，已收费）</h2>
+  <div class="table-wrap small">
+    <table>
+      <thead>
+        <tr><th>处方号</th><th>患者</th><th>医生</th><th>开方日期</th><th>金额（元）</th><th>发药操作</th></tr>
+      </thead>
+      <tbody>
+        {% for p in pending %}
+        <tr>
+          <td><code>{{ p.prescription_no }}</code></td>
+          <td>{{ p.patient_name }}</td>
+          <td>{{ p.doctor_name }}</td>
+          <td>{{ p.prescribe_date }}</td>
+          <td><strong>{{ '%.2f'|format(p.total_amount or 0) }}</strong></td>
+          <td>
+            <form method="post" class="inline-form" onsubmit="return confirm('确认发药？')">
+              <input type="hidden" name="action" value="dispense">
+              <input type="hidden" name="prescription_id" value="{{ p.prescription_id }}">
+              <button type="submit">发药</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">暂无待发药处方</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>已发药处方（{{ dispensed|length }} 张）</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>处方号</th><th>患者</th><th>医生</th><th>开方日期</th><th>金额（元）</th><th>状态</th></tr>
+      </thead>
+      <tbody>
+        {% for p in dispensed %}
+        <tr>
+          <td><code>{{ p.prescription_no }}</code></td>
+          <td>{{ p.patient_name }}</td>
+          <td>{{ p.doctor_name }}</td>
+          <td>{{ p.prescribe_date }}</td>
+          <td>{{ '%.2f'|format(p.total_amount or 0) }}</td>
+          <td><span class="badge">已发药</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">暂无发药记录</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

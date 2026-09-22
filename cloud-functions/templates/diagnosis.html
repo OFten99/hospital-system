@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}诊断管理 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>诊断管理</h1>
+    <p>医生为患者添加 / 修改诊断结果</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>填写诊断</h2>
+  <form method="post">
+    <input type="hidden" name="action" value="save">
+    <div class="form-grid">
+      <div class="field">
+        <label>患者</label>
+        <select name="patient_id" required onchange="fillDiagnosis()">
+          <option value="">请选择患者</option>
+          {% for p in patients %}
+          <option value="{{ p.patient_id }}" data-diag="{{ p.diagnosis or '' }}">{{ p.patient_name }}（{{ p.patient_no }}）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>诊断结果</label>
+        <textarea name="diagnosis" id="diag-input" rows="3" maxlength="500"
+                  style="width:100%;resize:vertical"
+                  placeholder="如：上呼吸道感染，急性支气管炎" required></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit">保存诊断结果</button>
+      <span class="hint">选择患者后自动带出已有诊断，可直接修改覆盖</span>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>患者诊断一览（{{ patients|length }} 人）</h2>
+  <div class="table-wrap small">
+    <table>
+      <thead>
+        <tr><th>病历号</th><th>姓名</th><th>诊断结果</th><th>状态</th></tr>
+      </thead>
+      <tbody>
+        {% for p in patients %}
+        <tr>
+          <td><code>{{ p.patient_no }}</code></td>
+          <td>{{ p.patient_name }}</td>
+          <td>{{ p.diagnosis or '—' }}</td>
+          <td>{% if p.diagnosis %}<span class="badge">已诊断</span>{% else %}<span class="muted">未诊断</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function fillDiagnosis() {
+  var sel = document.querySelector('select[name="patient_id"]');
+  var opt = sel.options[sel.selectedIndex];
+  document.getElementById('diag-input').value = opt ? (opt.dataset.diag || '') : '';
+}
+</script>
+{% endblock %}

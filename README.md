@@ -50,17 +50,34 @@ run_web.bat   # 或 cd web_app && python app.py
 # 浏览器打开 http://127.0.0.1:5000
 ```
 
+## 部署到公网（免费）
+
+项目已适配 **腾讯云 EdgeOne Pages**（Python 云函数，原生支持 Flask 框架），
+配合免费云 MySQL 即可让任何人通过网址访问，**数据库的存储过程与触发器原样保留**。
+
+```bash
+python build_edgeone.py     # 把 web_app/ 同步到 cloud-functions/（改过代码后必跑）
+git add . && git commit -m "更新" && git push
+```
+
+之后在 EdgeOne Pages 控制台导入本仓库即可自动构建部署。
+
+完整步骤（免费 MySQL 创建、SQL 导入、环境变量配置、报错排查）见
+**[docs/部署到公网_EdgeOne.md](docs/部署到公网_EdgeOne.md)**。
+
 ## 目录结构
 
 ```
 ├── sql/                          # 数据库脚本（01 建库 ~ 07 测试数据，08 检验科+体征，09 任务书补全，10 预约挂号，11 公告）
-├── web_app/                      # Flask Web 后端（app.py + 18 个模板 + 样式）
+├── web_app/                      # Flask Web 后端（app.py + 22 个模板 + 样式，本地开发源码）
+├── cloud-functions/              # EdgeOne Pages 云函数目录（由 build_edgeone.py 自动生成，勿手改）
 ├── docs/
+│   ├── 部署到公网_EdgeOne.md              # 免费部署到公网的完整步骤
 │   ├── screenshots/                     # 系统运行截图（最新）
 │   ├── 黑盒测试用例_医院门诊管理系统.csv   # 50 条黑盒用例（禅道导入格式）
-│   ├── 医院门诊管理系统需求分析.xmind       # 需求思维导图
 │   └── 医院门诊管理系统需求分析.xmind       # 需求思维导图
-├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析）
+├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析，支持云端 --ssl）
+├── build_edgeone.py              # 生成 EdgeOne Pages 部署包
 ├── check_env.py                  # 环境自检
 ├── verify_hospital.py            # Web 端到端回归验证
 ├── gen_testcases.py / gen_xmind.py

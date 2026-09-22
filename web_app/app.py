@@ -10,6 +10,7 @@
 import csv
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timedelta
 from functools import wraps
@@ -18,11 +19,26 @@ from pathlib import Path
 import mysql.connector
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
 
-from db import call_proc, execute, fetch_all, fetch_one, get_connection
+from db import call_proc, close_request_connections, execute, fetch_all, fetch_one, get_connection
 
 
-app = Flask(__name__)
-app.secret_key = "hospital-outpatient-his-course-design"
+# 模板与静态资源目录按「本文件所在目录」定位，
+# 这样本地运行和云端（云函数）运行解析结果完全一致。
+APP_DIR = Path(__file__).resolve().parent
+
+app = Flask(
+    __name__,
+    template_folder=str(APP_DIR / "templates"),
+    static_folder=str(APP_DIR / "static"),
+)
+# 会话密钥：本地开发用固定默认值，线上建议通过环境变量 HIS_SECRET_KEY 覆盖
+app.secret_key = os.getenv("HIS_SECRET_KEY", "hospital-outpatient-his-course-design")
+
+
+@app.teardown_appcontext
+def release_db_connections(exc=None):
+    """请求结束时统一关闭该请求占用的数据库连接（云端必备，防止连接数耗尽）"""
+    close_request_connections(exc)
 
 
 @app.after_request
@@ -32,9 +48,6 @@ def add_no_cache(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
-
-
-EXPORT_DIR = Path(__file__).resolve().parent / "exports"
 
 
 def sha256_text(text):
@@ -1302,7 +1315,6 @@ def export_csv(name):
 
     title, sql = queries[name]
     rows = fetch_all(sql)
-    EXPORT_DIR.mkdir(exist_ok=True)
     output = []
     if rows:
         headers = list(rows[0].keys())
@@ -1840,5 +1852,39 @@ def departments():
     return render_template("departments.html", rows=rows)
 
 
+# ============================================================
+# 可选的 URL 前缀支持（默认关闭，本地开发和常规部署都不需要）
+#
+# 用途：如果云平台把函数挂在子路径下（例如函数目录为
+# cloud-functions/his/[[default]].py，对外路径就变成 /his/...），
+# 平台剥离前缀后才交给 Flask，这时 url_for / 页面跳转生成的链接会
+# 丢掉前缀。设置环境变量 HIS_URL_PREFIX=/his 即可自动补上。
+# ============================================================
+
+URL_PREFIX = os.getenv("HIS_URL_PREFIX", "").strip().rstrip("/")
+
+
+class _PrefixMiddleware:
+    """把 URL 前缀写入 WSGI 的 SCRIPT_NAME，让 Flask 生成的链接带上前缀。"""
+
+    def __init__(self, wsgi_app, prefix):
+        self.wsgi_app = wsgi_app
+        self.prefix = prefix
+
+    def __call__(self, environ, start_response):
+        environ["SCRIPT_NAME"] = self.prefix
+        return self.wsgi_app(environ, start_response)
+
+
+if URL_PREFIX:
+    app.wsgi_app = _PrefixMiddleware(app.wsgi_app, URL_PREFIX)
+
+
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # 本地开发：python web_app/app.py
+    # 云端部署时由平台接管启动，这两个环境变量用不上
+    app.run(
+        host=os.getenv("HIS_WEB_HOST", "127.0.0.1"),
+        port=int(os.getenv("HIS_WEB_PORT", "5000")),
+        debug=os.getenv("HIS_WEB_DEBUG", "1") == "1",
+    )

@@ -63,6 +63,34 @@ def add_no_cache(response):
     return response
 
 
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    """
+    未捕获异常统一处理。
+
+    默认的 500 页面只有一句「Internal Server Error」，云端排查时毫无信息量。
+    这里把完整堆栈写进日志（对应 EdgeOne 的函数日志），同时给浏览器返回一段
+    可读提示 + 自检入口，便于定位是环境变量、数据库还是代码问题。
+    """
+    from werkzeug.exceptions import HTTPException
+
+    # 404 / 405 这类是正常业务响应，交回 Flask 默认处理
+    if isinstance(error, HTTPException):
+        return error
+
+    app.logger.error("未处理异常：%s", error, exc_info=True)
+    return Response(
+        "服务端内部错误（500）。\n\n"
+        f"异常信息：{type(error).__name__}: {error}\n\n"
+        "排查建议：\n"
+        "  1. 浏览器打开 /healthz，查看环境变量是否生效、数据库能否连上；\n"
+        "  2. 常见原因：HIS_DB_* 环境变量未配置、漏设 HIS_DB_SSL=1、\n"
+        "     或改完环境变量后没有重新部署（必须重新部署才生效）。\n",
+        status=500,
+        mimetype="text/plain; charset=utf-8",
+    )
+
+
 def sha256_text(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -156,6 +184,84 @@ def index():
     if current_user():
         return redirect(url_for("dashboard"))
     return redirect(url_for("login"))
+
+
+# ============================================================
+# 部署自检（无需登录）：浏览器打开 /healthz 即可看到环境变量与数据库连通性
+# 云端遇到 500 时，这里是排查的第一站
+# ============================================================
+
+# 本地默认值：如果云端读到的还是这些值，说明环境变量根本没生效
+_LOCAL_DEFAULTS = {
+    "HIS_DB_HOST": "127.0.0.1",
+    "HIS_DB_PORT": "3306",
+    "HIS_DB_USER": "root",
+    "HIS_DB_PASSWORD": "123456",
+    "HIS_DB_NAME": "hospital_outpatient",
+}
+
+_ENV_ADVICE = {
+    "HIS_DB_HOST": "云端应填托管数据库主机，默认值 127.0.0.1 在云端必然连不上",
+    "HIS_DB_PORT": "Aiven 等托管库的端口不是 3306，要照抄控制台给出的值",
+    "HIS_DB_USER": "云端用户名一般是 avnadmin 之类，不是 root",
+    "HIS_DB_PASSWORD": "应填托管库的真实密码",
+    "HIS_DB_SSL": "托管数据库强制 TLS，云端必须设为 1，漏了必然连不上",
+    "HIS_SECRET_KEY": "未设置会使用代码里的默认密钥，线上建议改成随机串",
+}
+
+
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    import platform
+
+    lines = ["医院门诊管理系统 —— 部署自检", "=" * 44]
+    lines.append(f"Python 版本：{platform.python_version()}")
+    try:
+        from importlib.metadata import version
+
+        lines.append(f"Flask：{version('flask')}")
+        lines.append(f"mysql-connector-python：{version('mysql-connector-python')}")
+    except Exception as error:  # 依赖缺失时也要能返回，方便定位
+        lines.append(f"依赖版本读取失败：{error}")
+
+    lines.append("")
+    lines.append("【环境变量】")
+    for key in ("HIS_DB_HOST", "HIS_DB_PORT", "HIS_DB_USER", "HIS_DB_PASSWORD",
+                "HIS_DB_NAME", "HIS_DB_SSL", "HIS_SECRET_KEY"):
+        raw = os.getenv(key)
+        if raw is None:
+            shown = "（未设置）"
+        elif key == "HIS_DB_PASSWORD":
+            shown = "*" * len(raw)
+        else:
+            shown = raw
+        note = ""
+        if raw is None and key in _ENV_ADVICE:
+            note = "  <- " + _ENV_ADVICE[key]
+        elif key in _LOCAL_DEFAULTS and raw == _LOCAL_DEFAULTS[key]:
+            note = "  <- 仍是本地默认值！" + _ENV_ADVICE.get(key, "")
+        lines.append(f"  {key} = {shown}{note}")
+
+    lines.append("")
+    lines.append("【数据库连通性】")
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT VERSION(), DATABASE(), CURRENT_USER()")
+        row = cursor.fetchone()
+        lines.append(f"  连接成功：server={row[0]}  database={row[1]}  user={row[2]}")
+        cursor.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"
+        )
+        lines.append(f"  当前库对象数（表+视图）：{cursor.fetchone()[0]}")
+        cursor.execute("SELECT COUNT(*) FROM users")
+        lines.append(f"  users 表行数：{cursor.fetchone()[0]}")
+        cursor.close()
+    except Exception as error:
+        lines.append(f"  连接失败：{type(error).__name__}: {error}")
+        lines.append("  排查顺序：HIS_DB_SSL 是否为 1 → Host/Port 是否照抄 → 改完是否重新部署 → 实例是否 Running")
+
+    return Response("\n".join(lines) + "\n", mimetype="text/plain; charset=utf-8")
 
 
 @app.route("/login", methods=["GET", "POST"])

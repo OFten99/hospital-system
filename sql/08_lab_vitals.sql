@@ -20,6 +20,7 @@ CREATE TABLE lab_items (
   item_category   VARCHAR(20)  NOT NULL COMMENT '项目分类：血常规/尿常规/肝功能/肾功能/血糖血脂/炎症标志物/粪便常规/电解质',
   unit            VARCHAR(20)  NULL COMMENT '单位',
   reference_range VARCHAR(50)  NULL COMMENT '参考范围',
+  price           DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '检验项目单价（元）',
   status          VARCHAR(10)  NOT NULL DEFAULT '启用' COMMENT '启用/停用'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='检验项目字典';
 

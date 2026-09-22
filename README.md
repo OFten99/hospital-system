@@ -53,6 +53,7 @@ run_web.bat   # 或 cd web_app && python app.py
 ├── sql/                          # 数据库脚本（01 建库 ~ 07 测试数据，08 检验科+体征，09 任务书补全）
 ├── web_app/                      # Flask Web 后端（app.py + 16 个模板 + 样式）
 ├── docs/
+│   ├── screenshots/                     # 系统运行截图
 │   ├── 黑盒测试用例_医院门诊管理系统.csv   # 50 条黑盒用例（禅道导入格式）
 │   └── 医院门诊管理系统需求分析.md         # 需求/模块/流程/测试思维导图文本版
 ├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析）
@@ -62,6 +63,19 @@ run_web.bat   # 或 cd web_app && python app.py
 ├── run_web.bat / start_mysql.bat
 └── 运行说明.md
 ```
+
+## 系统运行截图
+
+| | |
+| --- | --- |
+| ![登录页](docs/screenshots/01_login.png) | ![工作台首页](docs/screenshots/02_dashboard.png) |
+| 登录页 | 工作台首页 |
+| ![患者档案管理](docs/screenshots/03_patients.png) | ![挂号管理](docs/screenshots/04_registrations.png) |
+| 患者档案管理 | 挂号管理 |
+| ![医生排班管理](docs/screenshots/05_schedules.png) | ![处方开具](docs/screenshots/06_prescriptions.png) |
+| 医生排班管理 | 处方开具 |
+| ![收费退费](docs/screenshots/07_payments.png) | ![报表查询](docs/screenshots/08_reports.png) |
+| 收费退费 | 报表查询 |
 
 ## 数据库设计要点
 

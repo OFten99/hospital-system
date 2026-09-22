@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Prescriptions</div>
     <h1>处方开具</h1>
     <p>医生为今日挂号患者开方，自动校验药品库存并计算金额</p>
   </div>
@@ -22,13 +21,20 @@
           {% endfor %}
         </select>
       </label>
+      {% if is_doctor %}
+      <label>开方医生
+        <input type="text" value="{{ my_doctor_name }}" disabled>
+        <span class="hint" style="font-size:12px;color:#888">医生只能以本人名义开方</span>
+      </label>
+      {% else %}
       <label>开方医生
         <select name="doctor_id" required>
           {% for d in doctors %}
-          <option value="{{ d.doctor_id }}" {% if current_user.role_code == 'DOCTOR' and d.doctor_name == current_user.user_name %}selected{% endif %}>{{ d.department_name }} {{ d.doctor_name }}（{{ d.doctor_id }}）</option>
+          <option value="{{ d.doctor_id }}">{{ d.department_name }} {{ d.doctor_name }}（{{ d.doctor_id }}）</option>
           {% endfor %}
         </select>
       </label>
+      {% endif %}
     </div>
     <input type="hidden" name="patient_id" id="patient_id" value="">
     <h2 style="margin-top:22px">药品明细</h2>
@@ -60,6 +66,50 @@
       <button type="submit">提交处方（待收费）</button>
     </div>
   </form>
+</div>
+
+<div class="panel">
+  <h2>今日就诊队列</h2>
+  <p style="color:var(--muted);font-size:13px;margin:4px 0 12px">接诊后患者状态更新为"就诊中"，诊疗完毕点击"完成就诊"更新为"已就诊"。</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>排队号</th><th>挂号单号</th><th>患者</th><th>科室</th><th>医生</th><th>号别</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for q in visit_queue %}
+        <tr>
+          <td>{{ q.queue_no }}</td>
+          <td><code>{{ q.reg_no }}</code></td>
+          <td>{{ q.patient_name }}</td>
+          <td>{{ q.department_name }}</td>
+          <td>{{ q.doctor_name }}</td>
+          <td><span class="badge">{{ q.reg_type }}</span></td>
+          <td>{{ q.visit_status }}</td>
+          <td>
+            <div class="actions">
+              {% if q.visit_status == '待就诊' %}
+              <form class="inline-form" method="post">
+                <input type="hidden" name="action" value="start_visit">
+                <input type="hidden" name="registration_id" value="{{ q.registration_id }}">
+                <button type="submit">开始接诊</button>
+              </form>
+              {% elif q.visit_status == '就诊中' %}
+              <form class="inline-form" method="post">
+                <input type="hidden" name="action" value="finish_visit">
+                <input type="hidden" name="registration_id" value="{{ q.registration_id }}">
+                <button type="submit">完成就诊</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8">今日暂无待接诊患者</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <div class="panel">

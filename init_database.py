@@ -9,7 +9,7 @@
     python init_database.py --user root --password 你的密码
     python init_database.py --host 127.0.0.1 --port 3306 --user root --password 123456
 
-也可以通过环境变量覆盖：HIS_DB_HOST / HIS_DB_PORT / HIS_DB_USER / HIS_DB_PASSWORD
+也可以通过环境变量覆盖：HOTEL_DB_HOST / HOTEL_DB_PORT / HOTEL_DB_USER / HOTEL_DB_PASSWORD
 
 说明：
     - 脚本是幂等的：任何一步失败都会立即停止并给出失败文件与错误信息；
@@ -35,15 +35,17 @@ SQL_FILES = [
     "07_seed_data.sql",
     "08_lab_vitals.sql",
     "09_task2_gaps.sql",
+    "10_appointment.sql",
+    "11_announcement.sql",
 ]
 
 
 def default_config():
     return {
-        "host": os.getenv("HIS_DB_HOST", "127.0.0.1"),
-        "port": int(os.getenv("HIS_DB_PORT", "3306")),
-        "user": os.getenv("HIS_DB_USER", "root"),
-        "password": os.getenv("HIS_DB_PASSWORD", "123456"),
+        "host": os.getenv("HOTEL_DB_HOST", "127.0.0.1"),
+        "port": int(os.getenv("HOTEL_DB_PORT", "3306")),
+        "user": os.getenv("HOTEL_DB_USER", "root"),
+        "password": os.getenv("HOTEL_DB_PASSWORD", "123456"),
         "charset": "utf8mb4",
         "use_unicode": True,
     }

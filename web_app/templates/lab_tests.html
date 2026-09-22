@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Laboratory</div>
     <h1>检验管理</h1>
     <p>检验申请、结果录入与检验科数据汇总（对标小型 HIS 检验闭环）</p>
   </div>
@@ -23,7 +22,7 @@
     <input type="hidden" name="action" value="add_test">
     <div class="form-grid">
       <div class="field">
-        <label>患者<span>*</span></label>
+        <label>患者</label>
         <select name="patient_id" required>
           <option value="">请选择患者</option>
           {% for p in patients %}
@@ -32,7 +31,7 @@
         </select>
       </div>
       <div class="field">
-        <label>开单医生<span>*</span></label>
+        <label>开单医生</label>
         <select name="doctor_id" required onchange="syncDept()">
           {% for d in doctors %}
           <option value="{{ d.doctor_id }}" data-dept="{{ d.department_id }}">{{ d.user_name }}（{{ d.department_name }}）</option>
@@ -40,7 +39,7 @@
         </select>
       </div>
       <div class="field">
-        <label>开单科室<span>*</span></label>
+        <label>开单科室</label>
         <select name="department_id" required>
           {% for d in doctors %}
           <option value="{{ d.department_id }}">{{ d.department_name }}</option>
@@ -57,7 +56,7 @@
         </select>
       </div>
       <div class="field">
-        <label>标本类型<span>*</span></label>
+        <label>标本类型</label>
         <select name="sample_type" required>
           <option value="血液">血液</option>
           <option value="尿液">尿液</option>
@@ -66,7 +65,7 @@
         </select>
       </div>
     </div>
-    <h3 class="sub-title">选择检验项目<span>*</span></h3>
+    <h3 class="sub-title">选择检验项目</h3>
     <div class="item-groups">
       {% for cat, items_cat in items|groupby('item_category') %}
       <div class="item-group">

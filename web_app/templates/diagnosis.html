@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Diagnosis</div>
     <h1>诊断管理</h1>
     <p>医生为患者添加 / 修改诊断结果</p>
   </div>
@@ -15,7 +14,7 @@
     <input type="hidden" name="action" value="save">
     <div class="form-grid">
       <div class="field">
-        <label>患者<span>*</span></label>
+        <label>患者</label>
         <select name="patient_id" required onchange="fillDiagnosis()">
           <option value="">请选择患者</option>
           {% for p in patients %}
@@ -23,9 +22,10 @@
           {% endfor %}
         </select>
       </div>
-      <div class="field wide">
-        <label>诊断结果<span>*</span></label>
+      <div class="field">
+        <label>诊断结果</label>
         <textarea name="diagnosis" id="diag-input" rows="3" maxlength="500"
+                  style="width:100%;resize:vertical"
                   placeholder="如：上呼吸道感染，急性支气管炎" required></textarea>
       </div>
     </div>

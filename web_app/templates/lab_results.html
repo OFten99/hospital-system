@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Lab Result</div>
     <h1>检验单详情</h1>
     <p>检验项目结果查看与录入</p>
   </div>
@@ -46,19 +45,34 @@
           <td>{{ it.reference_range or '-' }}</td>
           <td>
             {% if can_edit %}
+            {% if it.reference_range and '-' not in it.reference_range %}
+            <select name="result_{{ it.result_id }}" class="lab-value" data-range="{{ it.reference_range or '' }}" data-rid="{{ it.result_id }}">
+              <option value="">-- 请选择 --</option>
+              {% if it.result_value and it.result_value not in ['阴性', '弱阳性', '阳性'] %}
+              <option value="{{ it.result_value }}" selected>{{ it.result_value }}</option>
+              {% endif %}
+              {% for opt in ['阴性', '弱阳性', '阳性'] %}
+              <option value="{{ opt }}" {{ 'selected' if it.result_value == opt else '' }}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
             <input type="text" name="result_{{ it.result_id }}" value="{{ it.result_value or '' }}"
+                   class="lab-value" data-range="{{ it.reference_range or '' }}" data-rid="{{ it.result_id }}"
                    placeholder="待检验" maxlength="50">
+            {% endif %}
+            <span class="badge lab-auto" id="auto_{{ it.result_id }}" style="display:none"></span>
             {% elif it.result_value %}
             <strong>{{ it.result_value }}</strong>
             {% else %}<span class="muted">未出</span>{% endif %}
           </td>
           <td>
             {% if can_edit %}
-            <select name="flag_{{ it.result_id }}">
+            <select name="flag_{{ it.result_id }}" id="flag_{{ it.result_id }}">
               {% for f in ['正常', '偏高', '偏低', '异常'] %}
               <option value="{{ f }}" {{ 'selected' if it.result_flag == f else '' }}>{{ f }}</option>
               {% endfor %}
             </select>
+            <span class="hint" id="hint_{{ it.result_id }}" style="display:block;font-size:11px"></span>
             {% elif it.result_value %}
             <span class="badge {{ 'warn' if it.result_flag != '正常' else '' }}">{{ it.result_flag }}</span>
             {% else %}-{% endif %}
@@ -76,9 +90,60 @@
   {% if can_edit %}
     <div class="form-actions">
       <button type="submit">保存检验结果</button>
-      <span class="hint">保存后状态自动流转：全部项目出结果即"已完成"</span>
+      <span class="hint">保存后状态自动流转：全部项目出结果即"已完成"；有参考范围的项目由系统自动判定结果</span>
     </div>
   </form>
   {% endif %}
 </div>
+
+{% if can_edit %}
+<script>
+function judgeRange(range, val) {
+  var m = /^\s*(-?\d+(?:\.\d+)?)\s*[-~]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(range);
+  if (!m || val === '') return null;
+  var v = parseFloat(val);
+  if (isNaN(v)) return null;
+  var lo = parseFloat(m[1]), hi = parseFloat(m[2]);
+  if (v < lo) return '偏低';
+  if (v > hi) return '偏高';
+  return '正常';
+}
+function judgeText(range, val) {
+  if (!range || val === '') return null;
+  if (/^\s*(-?\d+(?:\.\d+)?)\s*[-~]\s*(-?\d+(?:\.\d+)?)\s*$/.test(range)) return null;
+  return val.trim() === range.trim() ? '正常' : '异常';
+}
+function refreshAuto(inp) {
+  var rid = inp.dataset.rid, range = inp.dataset.range, val = inp.value;
+  var auto = document.getElementById('auto_' + rid);
+  var hint = document.getElementById('hint_' + rid);
+  var sel = document.getElementById('flag_' + rid);
+  if (val === '') {
+    // 输入前：禁止调整结果标志
+    sel.disabled = true;
+    auto.style.display = 'none';
+    hint.textContent = '输入结果值后由系统自动判定';
+    return;
+  }
+  var flag = judgeRange(range, val);
+  if (flag === null) flag = judgeText(range, val);
+  if (flag) {
+    sel.disabled = true;
+    auto.style.display = 'inline-block';
+    auto.textContent = '自动判定：' + flag;
+    auto.className = 'badge' + (flag === '正常' ? '' : ' warn') + ' lab-auto';
+    hint.textContent = /[-~]/.test(range) ? '系统按参考范围自动判定' : '定性项目按参考值比对自动判定';
+  } else {
+    auto.style.display = 'none';
+    sel.disabled = false;
+    hint.textContent = val ? '无参考范围，请手动选择' : '';
+  }
+}
+document.querySelectorAll('.lab-value').forEach(function (inp) {
+  var ev = inp.tagName === 'SELECT' ? 'change' : 'input';
+  inp.addEventListener(ev, function () { refreshAuto(inp); });
+  refreshAuto(inp);
+});
+</script>
+{% endif %}
 {% endblock %}

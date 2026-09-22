@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}预约挂号 - 医院门诊系统{% endblock %}
+{% block content %}
+<style>
+.appt-schedules { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.appt-schedules label { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 14px; border: 1px solid var(--rule); border-radius: 14px; background: #fff; cursor: pointer; }
+.appt-schedules label:has(input:checked) { border-color: #18181b; background: #fafafa; box-shadow: inset 0 0 0 1px #18181b; }
+.appt-schedules input { margin-top: 3px; }
+.appt-schedules .s-title { font-weight: 800; }
+.appt-schedules .s-meta { color: var(--muted); font-size: 0.92rem; margin-top: 4px; line-height: 1.5; }
+.appt-schedules .s-remain { font-weight: 800; color: #16a34a; }
+.appt-schedules .s-full { color: #dc2626; font-weight: 700; }
+.patient-card { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 16px 18px; background: #fafafa; border: 1px solid var(--rule); border-radius: 14px; margin-bottom: 18px; }
+.patient-card strong { font-size: 1.15rem; }
+</style>
+
+<div class="page-head">
+  <div>
+    <h1>预约挂号</h1>
+    <p>提前预约未来排班 → 生成预约流水号与挂号时限 → 就诊当日取号转正式挂号</p>
+  </div>
+</div>
+
+<div class="form-card wide-form">
+  <h2>① 患者识别</h2>
+  {% if not patient %}
+  <form method="post" class="form-grid">
+    <input type="hidden" name="action" value="find">
+    <label>身份证号或手机号
+      <input name="keyword" value="{{ keyword }}" placeholder="请输入身份证号或手机号" required>
+    </label>
+    <div style="grid-column:1 / -1"><button type="submit">查询</button></div>
+  </form>
+  {% if keyword %}
+  <div class="flash error" style="margin-top:16px">未找到该患者的档案，请先在「患者档案」或自助终端建档。</div>
+  {% endif %}
+  {% else %}
+  <div class="patient-card">
+    <div><strong>{{ patient.patient_name }}</strong> <span class="badge">{{ patient.gender }}</span></div>
+    <div>病历号：<code>{{ patient.patient_no }}</code></div>
+    <div>身份证：{{ patient.id_card }}</div>
+    <div>手机号：{{ patient.phone }}</div>
+  </div>
+  <a class="secondary-btn" href="{{ url_for('appointments') }}">更换患者</a>
+  {% endif %}
+</div>
+
+{% if patient %}
+<div class="form-card wide-form">
+  <h2>② 选择就诊日期与排班</h2>
+  <form method="get" style="margin-bottom:16px">
+    <input type="hidden" name="keyword" value="{{ keyword }}">
+    <label style="display:flex;gap:8px;align-items:center">就诊日期
+      <input type="date" name="appt_date" value="{{ appt_date }}" min="{{ appt_date }}">
+      <button type="submit">查询</button>
+    </label>
+  </form>
+  {% if schedules %}
+  <form method="post">
+    <input type="hidden" name="action" value="create">
+    <input type="hidden" name="patient_id" value="{{ patient.patient_id }}">
+    <div class="appt-schedules">
+      {% for s in schedules %}
+      <label>
+        <input type="radio" name="schedule_id" value="{{ s.schedule_id }}" required>
+        <span>
+          <div class="s-title">{{ s.department_name }} · {{ s.doctor_name }}（{{ s.title }}）</div>
+          <div class="s-meta">{{ s.work_date }} {{ s.shift_type }} {{ s.clinic_room or '' }} · 挂号费 {{ '%.2f'|format(s.consultation_fee) }} 元</div>
+          <div class="s-meta">
+            {% if s.remain > 0 %}<span class="s-remain">剩余 {{ s.remain }} 号</span>{% else %}<span class="s-full">号源已满</span>{% endif %}
+          </div>
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+    <label>号别
+      <select name="reg_type"><option value="普通号">普通号</option><option value="专家号">专家号</option></select>
+    </label>
+    <button type="submit" style="width:100%; margin-top:14px">提交预约</button>
+  </form>
+  {% else %}
+  <p>该日期暂无排班，请选择其他日期或联系管理员安排。</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="page-head" style="margin-bottom:12px">
+    <h2 style="margin:0">预约列表{% if patient %}（{{ patient.patient_name }}）{% endif %}</h2>
+    <form method="get" style="display:flex;gap:8px;align-items:center">
+      {% if keyword %}<input type="hidden" name="keyword" value="{{ keyword }}">{% endif %}
+      <select name="status">
+        <option value="">全部状态</option>
+        {% for s in ['已预约', '已取号', '已取消', '已过期'] %}
+        <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">筛选</button>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>预约流水号</th><th>患者</th><th>科室 / 医生</th><th>就诊日期</th><th>班次</th><th>号别</th><th>挂号时限</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><code>{{ r.appointment_no }}</code></td>
+          <td>{{ r.patient_name }}</td>
+          <td>{{ r.department_name }} · {{ r.doctor_name }}</td>
+          <td>{{ r.appointment_date }}</td>
+          <td>{{ r.shift_type }}</td>
+          <td><span class="badge">{{ r.reg_type }}</span></td>
+          <td>{{ r.expire_time.strftime('%m-%d %H:%M') }}</td>
+          <td>
+            {% if r.status == '已预约' %}<span class="badge" style="background:#E3F2F6;color:#0E7490">{{ r.status }}</span>
+            {% elif r.status == '已取号' %}<span class="badge" style="background:#E7F4EC;color:#15803D">{{ r.status }}</span>
+            {% elif r.status == '已取消' %}<span class="badge" style="background:#F1F4F6;color:#6B7F90">{{ r.status }}</span>
+            {% else %}<span class="badge" style="background:#FBE9E7;color:#B91C1C">{{ r.status }}</span>{% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              {% if r.status == '已预约' %}
+              <a class="secondary-btn" href="{{ url_for('appointment_checkin', appointment_id=r.appointment_id) }}">取号</a>
+              <form class="inline-form" method="post" onsubmit="return confirm('确认取消该预约？取消后号源将释放。')">
+                <input type="hidden" name="action" value="cancel">
+                <input type="hidden" name="appointment_id" value="{{ r.appointment_id }}">
+                <button class="danger-btn" type="submit">取消</button>
+              </form>
+              {% else %}-{% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9">暂无预约记录</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

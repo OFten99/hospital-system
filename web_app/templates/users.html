@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Users</div>
     <h1>用户管理</h1>
     <p>超级用户为挂号员、医生、收费员、检验技师、药房人员等注册新账号</p>
   </div>
@@ -15,7 +14,7 @@
     <input type="hidden" name="action" value="add_user">
     <div class="form-grid">
       <div class="field">
-        <label>姓名<span>*</span></label>
+        <label>姓名</label>
         <input type="text" name="user_name" required placeholder="如：挂号员小张">
       </div>
       <div class="field">
@@ -23,22 +22,22 @@
         <input type="text" name="user_no" placeholder="留空自动生成">
       </div>
       <div class="field">
-        <label>用户名（登录名）<span>*</span></label>
+        <label>用户名（登录名）</label>
         <input type="text" name="username" required placeholder="如：reg02">
       </div>
       <div class="field">
-        <label>初始密码<span>*</span></label>
+        <label>初始密码</label>
         <input type="text" name="password" required placeholder="如：123456">
       </div>
       <div class="field">
-        <label>性别<span>*</span></label>
+        <label>性别</label>
         <select name="gender" required>
           <option value="男">男</option>
           <option value="女">女</option>
         </select>
       </div>
       <div class="field">
-        <label>角色<span>*</span></label>
+        <label>角色</label>
         <select name="role_id" required onchange="toggleDoctorFields()">
           {% for r in roles %}
           <option value="{{ r.role_id }}" data-code="{{ r.role_code }}">{{ r.role_name }}</option>

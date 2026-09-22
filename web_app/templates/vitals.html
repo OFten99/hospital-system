@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Vital Signs</div>
     <h1>体征记录</h1>
     <p>医生为患者录入体温、血压、心率等各项体征数据，形成体征历史</p>
   </div>
@@ -15,7 +14,7 @@
     <input type="hidden" name="action" value="add">
     <div class="form-grid">
       <div class="field">
-        <label>患者<span>*</span></label>
+        <label>患者</label>
         <select name="patient_id" required>
           <option value="">请选择患者</option>
           {% for p in patients %}

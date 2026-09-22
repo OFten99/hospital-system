@@ -3,12 +3,12 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Schedules</div>
     <h1>医生排班管理</h1>
-    <p>创建排班、停诊/启用、按日期查询（有挂号的排班不能停诊）</p>
+    <p>{% if can_edit %}创建排班、停诊/启用、按日期查询（有挂号的排班不能停诊）{% else %}查看医生出诊安排（当前角色仅可查看）{% endif %}</p>
   </div>
 </div>
 
+{% if can_edit %}
 <div class="form-card wide-form">
   <h2>新增排班{% if is_doctor %}（仅本人）{% endif %}</h2>
   <form method="post" class="form-grid">
@@ -37,6 +37,7 @@
     <div style="align-self:end"><button type="submit">创建排班</button></div>
   </form>
 </div>
+{% endif %}
 
 <div class="panel">
   <div class="page-head" style="margin-bottom:12px">
@@ -51,7 +52,7 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>日期</th><th>医生</th><th>科室</th><th>职称</th><th>班次</th><th>诊室</th><th>号源</th><th>已挂</th><th>剩余</th><th>挂号费</th><th>状态</th><th>操作</th></tr>
+        <tr><th>日期</th><th>医生</th><th>科室</th><th>职称</th><th>班次</th><th>诊室</th><th>号源</th><th>已挂</th><th>已约</th><th>剩余</th><th>挂号费</th><th>状态</th>{% if can_edit %}<th>操作</th>{% endif %}</tr>
       </thead>
       <tbody>
         {% for row in rows %}
@@ -64,9 +65,11 @@
           <td>{{ row.clinic_room or '-' }}</td>
           <td>{{ row.max_registrations }}</td>
           <td>{{ row.registered_count }}</td>
+          <td>{{ row.appointment_count }}</td>
           <td>{{ row.remain_count }}</td>
           <td>{{ '%.2f'|format(row.consultation_fee) }}</td>
           <td><span class="badge">{{ row.schedule_status }}</span></td>
+          {% if can_edit %}
           <td>
             <div class="actions">
               <form class="inline-form" method="post">
@@ -82,9 +85,10 @@
               </form>
             </div>
           </td>
+          {% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="12">该日期暂无排班</td></tr>
+        <tr><td colspan="13">该日期暂无排班</td></tr>
         {% endfor %}
       </tbody>
     </table>

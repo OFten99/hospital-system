@@ -3,7 +3,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Codes</div>
     <h1>编号参考</h1>
     <p>表单中需要的科室、医生、患者、药品、系统用户编号一览</p>
   </div>
@@ -11,8 +10,8 @@
 
 <div class="grid-2">
   <div class="panel">
-    <h2>科室编号</h2>
-    <div class="table-wrap small">
+    <h2>科室编号 <span class="code-count">共 {{ data.departments|length }} 条</span></h2>
+    <div class="table-wrap small codes-wrap">
       <table>
         <thead><tr><th>编号</th><th>编码</th><th>科室</th></tr></thead>
         <tbody>
@@ -24,8 +23,8 @@
     </div>
   </div>
   <div class="panel">
-    <h2>角色编号</h2>
-    <div class="table-wrap small">
+    <h2>角色编号 <span class="code-count">共 {{ data.roles|length }} 条</span></h2>
+    <div class="table-wrap small codes-wrap">
       <table>
         <thead><tr><th>编号</th><th>编码</th><th>角色</th></tr></thead>
         <tbody>
@@ -39,8 +38,8 @@
 </div>
 
 <div class="panel">
-  <h2>医生编号</h2>
-  <div class="table-wrap">
+  <h2>医生编号 <span class="code-count">共 {{ data.doctors|length }} 条</span></h2>
+  <div class="table-wrap codes-wrap">
     <table>
       <thead><tr><th>编号</th><th>工号</th><th>姓名</th><th>科室</th><th>职称</th><th>挂号费</th></tr></thead>
       <tbody>
@@ -53,8 +52,8 @@
 </div>
 
 <div class="panel">
-  <h2>患者编号</h2>
-  <div class="table-wrap small">
+  <h2>患者编号 <span class="code-count">共 {{ data.patients|length }} 条</span></h2>
+  <div class="table-wrap small codes-wrap">
     <table>
       <thead><tr><th>编号</th><th>病历号</th><th>姓名</th><th>电话</th></tr></thead>
       <tbody>
@@ -67,8 +66,8 @@
 </div>
 
 <div class="panel">
-  <h2>药品编号</h2>
-  <div class="table-wrap small">
+  <h2>药品编号 <span class="code-count">共 {{ data.medicines|length }} 条</span></h2>
+  <div class="table-wrap small codes-wrap">
     <table>
       <thead><tr><th>编号</th><th>编码</th><th>名称</th><th>单价（元）</th><th>库存</th></tr></thead>
       <tbody>
@@ -81,8 +80,8 @@
 </div>
 
 <div class="panel">
-  <h2>系统用户</h2>
-  <div class="table-wrap small">
+  <h2>系统用户 <span class="code-count">共 {{ data.users|length }} 条</span></h2>
+  <div class="table-wrap small codes-wrap">
     <table>
       <thead><tr><th>编号</th><th>工号</th><th>姓名</th><th>角色</th><th>账号状态</th></tr></thead>
       <tbody>

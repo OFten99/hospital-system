@@ -3,11 +3,26 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="eyebrow">Dashboard</div>
     <h1>门诊运营看板</h1>
     <p>{{ now.strftime('%Y-%m-%d') }} 今日门诊数据概览</p>
   </div>
 </div>
+
+{% if notices %}
+<div class="panel" style="margin-bottom:16px">
+  <h2 style="display:flex;justify-content:space-between;align-items:center">
+    <span>最新公告</span>
+    <a class="secondary-btn" href="{{ url_for('announcements') }}" style="font-size:12px">查看全部</a>
+  </h2>
+  {% for n in notices %}
+  <div style="padding:8px 0;border-bottom:1px dashed var(--rule)">
+    <strong>{{ n.title }}</strong>
+    <span style="color:var(--muted);font-size:12px;margin-left:10px">{{ n.created_at.strftime('%m-%d %H:%M') }}</span>
+    <div style="color:#555;margin-top:4px;line-height:1.6">{{ n.content }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <div class="stat-grid">
   <div class="stat"><span>今日挂号数</span><strong>{{ stats.today_reg }}</strong></div>

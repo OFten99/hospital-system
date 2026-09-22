@@ -9,6 +9,7 @@ INSERT INTO roles (role_code, role_name, description) VALUES
 ('ADMIN', '管理员', '系统管理与全部业务权限'),
 ('DOCTOR', '医生', '查看挂号、开具处方、管理患者'),
 ('REGISTRAR', '挂号员', '患者建档、挂号、退号'),
+('REGMACHINE', '挂号机', '自助挂号机终端：患者建档、挂号、退号'),
 ('CASHIER', '收费员', '处方收费、退费、报表');
 
 -- 二、科室
@@ -23,9 +24,10 @@ INSERT INTO departments (department_code, department_name, description) VALUES
 ('KQK', '口腔科', '口腔常见病诊治');
 
 -- 三、系统用户与医生
--- 管理员、挂号员、收费员
+-- 管理员、挂号员、挂号机、收费员
 CALL sp_add_user('A0001', '系统管理员', '男', NULL, 1, '13700000001', 'admin01', SHA2('123456', 256));
 CALL sp_add_user('R0001', '挂号员小王', '女', NULL, 3, '13700000002', 'reg01', SHA2('123456', 256));
+CALL sp_add_user('R0003', '自助挂号机', '男', NULL, (SELECT role_id FROM roles WHERE role_code = 'REGMACHINE'), '13700000004', 'regm01', SHA2('123456', 256));
 CALL sp_add_user('C0001', '收费员小李', '女', NULL, 4, '13700000003', 'cash01', SHA2('123456', 256));
 
 -- 医生（sp_add_doctor 内部自动关联 DOCTOR 角色）

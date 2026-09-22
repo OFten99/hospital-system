@@ -21,7 +21,6 @@
 import argparse
 import re
 import sys
-from getpass import getpass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -39,17 +38,27 @@ OBJECT_PATTERNS = {
 DB_NAME = "hospital_outpatient"
 
 CONF_TEMPLATE = """# 云端 MySQL 连接配置（医院门诊管理系统）
+#
+# 用法：用记事本打开本文件，把下面四项填在 = 号后面，保存后双击
+#       deploy_cloud_db.bat 即可。也可以现在就在命令行里输入。
+#
 # 本文件已被 .gitignore 忽略，不会上传到 GitHub，可以放心填密码。
 #
-# Aiven 控制台 → 你的 MySQL 服务 → Overview → Connection information
-# 可以找到 host / port / user / password（主机名形如 xxx.aivencloud.com）。
+# 四项的值从 Aiven 控制台取：
+#   你的 MySQL 服务 → Overview → Connection information
+#     Host      形如 hospital-db-xxx.aivencloud.com
+#     Port      不是 3306，是 5 位随机数字
+#     User      默认 avnadmin
+#     Password  AVNS_ 开头，点右侧眼睛图标显示后复制
 #
-# 每行一个「键=值」，不要加引号。改完保存，直接重新运行脚本即可。
+# 注意：= 号两边不要加引号，前后不要留空格。
+
 host=
 port=
 user=
 password=
-# 云端托管 MySQL 基本都强制 TLS，保持 1 即可；本地库填 0
+
+# 云端托管 MySQL 强制 TLS，保持 1 即可；只有连本地库时才改成 0
 ssl=1
 """
 
@@ -59,11 +68,16 @@ ssl=1
 # ------------------------------------------------------------------
 
 def load_conf(required=True):
-    """读取 my_cloud_db.cnf；不存在或字段不全时返回 None。"""
+    """
+    读取 my_cloud_db.cnf；不存在或字段不全时返回 None。
+
+    用 utf-8-sig 读取：用户用记事本编辑后可能存成「带 BOM 的 UTF-8」，
+    带 BOM 会让第一个键名带上隐藏字符，导致配置读不出来。
+    """
     if not CONF_PATH.exists():
         return None
     conf = {}
-    for line in CONF_PATH.read_text(encoding="utf-8").splitlines():
+    for line in CONF_PATH.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -97,17 +111,15 @@ def save_conf(conf):
 
 def _read_secret(prompt):
     """
-    读取密码，输入时不回显。
+    读取密码。
 
-    注意：getpass 在没有真实控制台（例如输出被管道 / 重定向接走）时会去打开
-    /dev/tty，而那里读不到数据就会**一直卡住**。所以先判断 stdin 是不是终端：
-    是终端就用 getpass 隐藏输入，不是就退回普通 input（此时输入本来也看不见）。
+    这里刻意**不用 getpass**：Windows 上 getpass 走 msvcrt 逐键读取，
+    粘贴（Ctrl+V / 右键粘贴）往往完全没反应，用户会卡在这一步问「为什么复制不进去」。
+    代价是密码会在屏幕上明文显示，请留意周围环境。
+
+    如果连输入都不想输入，可以直接编辑 my_cloud_db.cnf 把 host / port / user /
+    password 四项填好再运行本脚本 —— 配置齐全时脚本根本不问这些问题。
     """
-    try:
-        if sys.stdin is not None and sys.stdin.isatty():
-            return getpass(prompt)
-    except Exception:
-        pass
     return input(prompt)
 
 
@@ -122,8 +134,10 @@ def ask_conf(existing=None):
     def ask(prompt, key, secret=False):
         old = existing.get(key, "")
         if secret:
-            # 密码一律隐藏回显，避免被旁边的人看到
             hint = "（直接回车沿用已保存的密码）" if old else ""
+            print()
+            print("  * 密码支持直接粘贴；为兼容粘贴，输入会明文显示。")
+            print("  * 不想看到明文的话：关掉本窗口，直接编辑 my_cloud_db.cnf 填好后重跑。")
             raw = _read_secret(f"{prompt}{hint} ").strip()
         else:
             default = f"[{old}] " if old else ""
@@ -383,13 +397,32 @@ def main():
         print(f"[错误] 找不到 sql 目录：{SQL_DIR}")
         sys.exit(1)
 
-    conf = None if args.edit else load_conf()
-    if not conf:
+    # 读配置（required=False：即使只填了一半也读出来，回头让用户回车沿用）
+    # 四项都齐了才算完整 —— 只填了密码之外的项时，也要继续问密码
+    existing = None if args.edit else load_conf(required=False)
+    complete = bool(existing and all(
+        existing.get(key) for key in ("host", "port", "user", "password")))
+    if complete:
+        conf = existing
+    else:
         print()
-        print("没有找到 my_cloud_db.cnf（或内容不完整），先填写连接信息。")
-        print("如果你还没创建云端 MySQL，请先按 docs/部署到公网_EdgeOne.md 第 1~2 节")
-        print("注册 Aiven 免费 MySQL（约 5 分钟，无需信用卡）。")
-        conf = ask_conf(conf)
+        if CONF_PATH.exists():
+            print(f"发现 {CONF_PATH.name}，但还没填全。")
+            print("两种继续方式，任选其一：")
+            print(f"  A) 用记事本打开 {CONF_PATH.name} 把四项填好，保存后重新运行本脚本")
+            print("     （最省事：密码也能粘贴，不用担心命令行粘贴失效）")
+            print("  B) 就在下面按提示输入；已填过的项直接回车沿用")
+        else:
+            # 首次运行：直接把配置模板写到磁盘，用户可以用记事本填，避免命令行粘贴问题
+            CONF_PATH.write_text(CONF_TEMPLATE, encoding="utf-8")
+            print(f"还没有 {CONF_PATH.name}，已为你生成配置模板：")
+            print(f"    {CONF_PATH}")
+            print("推荐做法：用记事本打开它，把 host / port / user / password 四项填好，")
+            print("         保存后重新运行本脚本（这样密码粘贴不会有任何问题）。")
+            print("也可以现在就在下面按提示输入。")
+            print("如果你还没创建云端 MySQL，请先按 docs/部署到公网_EdgeOne.md")
+            print("第四节注册 Aiven 免费 MySQL（约 5 分钟，无需信用卡）。")
+        conf = ask_conf(existing)
 
     if not test_connection(conf):
         sys.exit(1)

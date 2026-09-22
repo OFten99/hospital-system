@@ -1,7 +1,7 @@
 # 部署到公网（腾讯云 EdgeOne Pages + 免费云 MySQL）
 
 让任何人都能通过一个网址访问本系统。整套方案 **完全免费**，且你的数据库亮点（18 张表、
-11 个视图、18 个存储过程、4 个触发器）**原样保留**，不需要为迁就云平台而改造。
+9 个视图、16 个存储过程、4 个触发器）**原样保留**，不需要为迁就云平台而改造。
 
 ---
 
@@ -75,9 +75,51 @@
 
 ---
 
-## 五、第 2 步：把数据库结构和数据导入云端
+## 五、第 2 步：把数据库结构和数据导入云端（一条命令）
 
-在项目根目录执行（Windows CMD，PowerShell 见下方注释）：
+回到项目根目录，**双击 `deploy_cloud_db.bat`**，或者在命令行执行：
+
+```cmd
+python deploy_cloud_db.py
+```
+
+脚本会依次问你 4 个值（Host / Port / User / Password），粘贴第 1 步记下的内容即可。
+这些值会保存到 `my_cloud_db.cnf`，**该文件已在 `.gitignore` 里，不会上传 GitHub**，
+下次运行直接回车沿用。
+
+然后它自动完成三件事：
+
+1. **连接测试 + 权限预检** —— 连上后会读 `log_bin_trust_function_creators`，
+   没开启就提前警告（而不是等建触发器时才报 `ERROR 1419`）；
+2. **导入** —— 依次执行 `sql/01` ~ `sql/11`：建库 → 建表 → 视图 → 存储过程 →
+   触发器 → 索引 → 测试数据 → 检验/体征 → 预约 → 公告；
+3. **校验** —— 导入完立刻连上去数一遍，和源码里定义的对象数量对比：
+
+```
+========================================================
+云端数据库校验结果
+========================================================
+  [OK] 表       期望  18  实际  18
+  [OK] 视图     期望   9  实际   9
+  [OK] 存储过程 期望  16  实际  16
+  [OK] 触发器   期望   4  实际   4
+  [OK] 患者记录 xx 条，系统账号 x 个
+========================================================
+数据库已就绪，可以把这套连接信息填到 EdgeOne Pages 的环境变量里了。
+```
+
+常用参数：
+
+| 命令 | 作用 |
+|---|---|
+| `python deploy_cloud_db.py` | 首次填写配置并导入 |
+| `python deploy_cloud_db.py --check` | 只测连接与权限，不动数据 |
+| `python deploy_cloud_db.py --verify` | 只统计云端库已有对象，核对数量 |
+| `python deploy_cloud_db.py --edit` | 重新填写连接信息（换库时用） |
+| `python deploy_cloud_db.py --yes` | 跳过确认，直接导入 |
+
+<details>
+<summary>不想用脚本？也可以用环境变量手动调用 init_database.py</summary>
 
 ```cmd
 set HIS_DB_HOST=hospital-db-xxx.aivencloud.com
@@ -91,14 +133,12 @@ python init_database.py
 
 > PowerShell 写法：`$env:HIS_DB_HOST="hospital-db-xxx.aivencloud.com"`，其余同理。
 >
-> 也可以直接用命令行参数，不用环境变量：
+> 也可以直接用命令行参数：
 > ```cmd
 > python init_database.py --host hospital-db-xxx.aivencloud.com --port 12345 ^
 >     --user avnadmin --password AVNS_xxxxxxxx --ssl
 > ```
-
-脚本会依次执行 `sql/01` ~ `sql/11`，完成建库 → 建表 → 视图 → 存储过程 → 触发器 →
-索引 → 测试数据 → 检验/体征 → 预约 → 公告。
+</details>
 
 看到下面这行就成功了：
 
@@ -113,10 +153,16 @@ python init_database.py
 
 ## 六、第 3 步：先在本地连云端库验证（强烈建议）
 
-上云前先确认「云端库 + 应用代码」能跑通，可以把问题范围缩小一半：
+上云前先确认「云端库 + 应用代码」能跑通，可以把问题范围缩小一半。
+把第 2 步填过的值再设成环境变量（脚本存的是文件，Web 服务读的是环境变量）：
 
 ```cmd
-rem 环境变量保持第 2 步设置的那样，然后启动
+set HIS_DB_HOST=hospital-db-xxx.aivencloud.com
+set HIS_DB_PORT=12345
+set HIS_DB_USER=avnadmin
+set HIS_DB_PASSWORD=AVNS_xxxxxxxx
+set HIS_DB_SSL=1
+
 python web_app\app.py
 ```
 

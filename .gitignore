@@ -19,6 +19,7 @@ _final_err.txt
 
 # 本地配置（含数据库口令，禁止上传）
 my_his.cnf
+my_cloud_db.cnf
 .env
 
 # 运行时产生的导出文件

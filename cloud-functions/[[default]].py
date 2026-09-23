@@ -37,12 +37,40 @@ from db import call_proc, close_request_connections, execute, fetch_all, fetch_o
 
 # 模板与静态资源目录按「本文件所在目录」定位，
 # 这样本地运行和云端（云函数）运行解析结果完全一致。
+# 云端（EdgeOne 云函数）打包时文件挂载位置可能与源码目录不同，
+# 因此按多个候选路径依次探测，哪个目录里有模板就优先用哪个。
 APP_DIR = Path(__file__).resolve().parent
+_CWD = Path(os.getcwd())
+
+_TEMPLATE_CANDIDATES = [
+    APP_DIR / "templates",            # 本地 / 常规部署
+    _CWD / "templates",               # 云函数工作目录
+    _CWD / "cloud-functions" / "templates",
+    APP_DIR.parent / "templates",
+]
+_STATIC_CANDIDATES = [
+    APP_DIR / "static",
+    _CWD / "static",
+    _CWD / "cloud-functions" / "static",
+    APP_DIR.parent / "static",
+]
+
+TEMPLATE_DIR = next((c for c in _TEMPLATE_CANDIDATES if (c / "login.html").exists()),
+                    APP_DIR / "templates")
+STATIC_DIR = next((c for c in _STATIC_CANDIDATES if c.exists()),
+                  APP_DIR / "static")
+
+import logging as _logging
+_logging.getLogger(__name__).warning(
+    "HIS 路径诊断：APP_DIR=%s cwd=%s TEMPLATE_DIR=%s(%s) STATIC_DIR=%s(%s)",
+    APP_DIR, _CWD, TEMPLATE_DIR, (TEMPLATE_DIR / "login.html").exists(),
+    STATIC_DIR, (STATIC_DIR / "style.css").exists(),
+)
 
 app = Flask(
     __name__,
-    template_folder=str(APP_DIR / "templates"),
-    static_folder=str(APP_DIR / "static"),
+    template_folder=str(TEMPLATE_DIR),
+    static_folder=str(STATIC_DIR),
 )
 # 会话密钥：本地开发用固定默认值，线上建议通过环境变量 HIS_SECRET_KEY 覆盖
 app.secret_key = os.getenv("HIS_SECRET_KEY", "hospital-outpatient-his-course-design")

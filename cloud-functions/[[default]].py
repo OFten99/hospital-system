@@ -122,6 +122,28 @@ if _USE_MEM_STATIC:
                      view_func=_serve_static_from_memory, methods=["GET"])
 # 会话密钥：本地开发用固定默认值，线上建议通过环境变量 HIS_SECRET_KEY 覆盖
 app.secret_key = os.getenv("HIS_SECRET_KEY", "hospital-outpatient-his-course-design")
+# 全局注入内嵌 CSS：云端 /static/ 请求被 EdgeOne 静态资源层拦截（产物中无该文件
+# 时直接 500 且不进云函数），因此把样式随 HTML 一起渲染，保证云端界面与本地一致。
+def _load_style_css():
+    try:
+        _disk = STATIC_DIR / "style.css"
+        if _disk.exists():
+            return _disk.read_text(encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        import templates_data as _td
+        return _td.TEMPLATES.get("static/style.css", "")
+    except ImportError:
+        return ""
+
+
+_STYLE_CSS = _load_style_css()
+
+
+@app.context_processor
+def _inject_inline_style():
+    return {"style_css": _STYLE_CSS}
 
 
 @app.teardown_appcontext

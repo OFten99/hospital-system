@@ -100,6 +100,42 @@ def copy_tree(src: Path, dst: Path, pattern: str = "*"):
     return count
 
 
+
+def dump_templates_data():
+    """把 templates/ 与 static/ 内容打包为 templates_data.py（内存字典）。
+
+    EdgeOne Makers 的 PythonFunctionBuilder 只把 .py 文件与依赖装进函数运行时，
+    子目录 templates/、static/ 不会随函数代码上传；这里把它们内嵌为
+    cloud-functions/templates_data.py，入口在云端找不到磁盘模板时解包使用。
+    """
+    items = []
+    tpl = SRC / "templates"
+    if tpl.exists():
+        for html in sorted(tpl.glob("*.html")):
+            items.append((f"templates/{html.name}", html.read_text(encoding="utf-8")))
+    st = SRC / "static"
+    if st.exists():
+        for f in sorted(st.rglob("*")):
+            if f.is_file():
+                rel = f.relative_to(st).as_posix()
+                items.append((f"static/{rel}", f.read_text(encoding="utf-8")))
+    lines = [
+        "# -*- coding: utf-8 -*-",
+        "# 本文件由 build_edgeone.py 自动生成：模板与静态资源内存包。",
+        "# 用途：EdgeOne 云函数打包只含 .py 文件，云端磁盘无 templates/ 时由",
+        "#       入口文件解包本字典到临时目录供 Flask 渲染。",
+        "# 键：templates/xxx.html 或 static/xxx.css",
+        "TEMPLATES = {",
+    ]
+    for name, content in items:
+        esc = (content.replace("\\", "\\\\").replace('"', '\\"')
+                    .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
+        lines.append(f'    "{name}": "{esc}",')
+    lines.append("}")
+    dump(DST / "templates_data.py", "\n".join(lines))
+    print(f"  模板/静态资源已内嵌 templates_data.py（{len(items)} 个文件）")
+
+
 def main():
     app_py = SRC / "app.py"
     db_py = SRC / "db.py"
@@ -129,6 +165,9 @@ def main():
     # 3. 模板与静态资源
     copy_tree(SRC / "templates", DST / "templates", "*.html")
     copy_tree(SRC / "static", DST / "static")
+
+    # 3.5 模板与静态资源的内存兜底包（.py 文件才会被 EdgeOne 打包进函数运行时）
+    dump_templates_data()
 
     # 4. 依赖与说明
     dump(DST / "requirements.txt", REQUIREMENTS)

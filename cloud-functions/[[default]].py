@@ -67,6 +67,32 @@ _logging.getLogger(__name__).warning(
     STATIC_DIR, (STATIC_DIR / "style.css").exists(),
 )
 
+# 兜底：EdgeOne 云函数打包只含 .py 文件，磁盘没有模板/静态资源时，
+# 从同目录 templates_data.py（自动生成）解包到临时目录供 Flask 使用。
+if not (TEMPLATE_DIR / "login.html").exists():
+    try:
+        import tempfile
+        import templates_data as _td
+        _tmp_root = Path(tempfile.gettempdir()) / "his_templates_data"
+        _tmp_root.mkdir(parents=True, exist_ok=True)
+        for _name, _content in _td.TEMPLATES.items():
+            _f = _tmp_root / _name
+            if not _f.exists():
+                _f.parent.mkdir(parents=True, exist_ok=True)
+                _f.write_text(_content, encoding="utf-8")
+        _t_tpl = _tmp_root / "templates"
+        _t_static = _tmp_root / "static"
+        if (_t_tpl / "login.html").exists():
+            TEMPLATE_DIR = _t_tpl
+            STATIC_DIR = _t_static if _t_static.exists() else STATIC_DIR
+            _logging.getLogger(__name__).warning(
+                "HIS 已从 templates_data 解包模板到 %s（%d 项）", _tmp_root, len(_td.TEMPLATES))
+    except ImportError:
+        _logging.getLogger(__name__).warning(
+            "HIS 磁盘无模板且无 templates_data.py，模板不可用（APP_DIR=%s cwd=%s）",
+            APP_DIR, _CWD)
+
+
 app = Flask(
     __name__,
     template_folder=str(TEMPLATE_DIR),

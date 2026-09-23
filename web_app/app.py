@@ -80,11 +80,33 @@ if not (TEMPLATE_DIR / "login.html").exists():
             APP_DIR, _CWD)
 
 
+_USE_MEM_STATIC = not (STATIC_DIR / "style.css").exists()
+
 app = Flask(
     __name__,
     template_folder=str(TEMPLATE_DIR),
-    static_folder=str(STATIC_DIR),
+    static_folder=None if _USE_MEM_STATIC else str(STATIC_DIR),
 )
+
+
+# 云端静态资源兜底：EdgeOne 云函数内 Flask send_file 服务 /static 可能异常，
+# 此时显式注册 static 路由，直接从内存字典（templates_data.py）返回样式文件，
+# 保证云端界面与本地完全一致（本地磁盘 static 存在时不会启用）。
+if _USE_MEM_STATIC:
+    def _serve_static_from_memory(filename):
+        try:
+            import templates_data as _td
+        except ImportError:
+            return Response("not found", status=404, mimetype="text/plain")
+        key = "static/" + filename
+        if key in _td.TEMPLATES:
+            mime = ("text/css" if filename.endswith(".css")
+                    else "application/octet-stream")
+            return Response(_td.TEMPLATES[key], mimetype=mime)
+        return Response("not found", status=404, mimetype="text/plain")
+
+    app.add_url_rule("/static/<path:filename>", endpoint="static",
+                     view_func=_serve_static_from_memory, methods=["GET"])
 # 会话密钥：本地开发用固定默认值，线上建议通过环境变量 HIS_SECRET_KEY 覆盖
 app.secret_key = os.getenv("HIS_SECRET_KEY", "hospital-outpatient-his-course-design")
 

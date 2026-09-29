@@ -29,3 +29,6 @@ web_app/exports/
 report/
 论文素材/
 _github_upload/
+
+# 本机工具数据（会话记忆等，含个人信息，禁止上传）
+.workbuddy/

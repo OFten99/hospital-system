@@ -9,15 +9,19 @@
 
 import csv
 import hashlib
+import hmac
+import io
 import json
 import os
 import re
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
+from urllib.parse import quote
 
 import mysql.connector
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import call_proc, close_request_connections, execute, fetch_all, fetch_one, get_connection
 
@@ -107,8 +111,20 @@ if _USE_MEM_STATIC:
 
     app.add_url_rule("/static/<path:filename>", endpoint="static",
                      view_func=_serve_static_from_memory, methods=["GET"])
-# 会话密钥：本地开发用固定默认值，线上建议通过环境变量 HIS_SECRET_KEY 覆盖
-app.secret_key = os.getenv("HIS_SECRET_KEY", "hospital-outpatient-his-course-design")
+# 会话密钥。
+#
+# 这里刻意不改成「每次启动随机生成」：本项目运行在 EdgeOne 云函数上，冷启动会
+# 重建进程，密钥一变所有用户的登录态立刻失效（表现为「刚登录就被登出」）。
+# 所以未配置环境变量时回退到固定值保证可用，但会在启动日志里明确告警，
+# 线上请务必把 HIS_SECRET_KEY 设为随机串。
+_DEV_SECRET_FALLBACK = "hospital-outpatient-his-course-design"
+_ENV_SECRET = os.getenv("HIS_SECRET_KEY", "").strip()
+app.secret_key = _ENV_SECRET or _DEV_SECRET_FALLBACK
+if not _ENV_SECRET:
+    _logging.getLogger(__name__).warning(
+        "HIS 未设置 HIS_SECRET_KEY，正在使用内置默认密钥；"
+        "线上（EdgeOne 或任何公网环境）请务必设置为随机串，否则会话密钥可被推测。"
+    )
 # 全局注入内嵌 CSS：云端 /static/ 请求被 EdgeOne 静态资源层拦截（产物中无该文件
 # 时直接 500 且不进云函数），因此把样式随 HTML 一起渲染，保证云端界面与本地一致。
 def _load_style_css():
@@ -176,8 +192,46 @@ def handle_unexpected_error(error):
     )
 
 
-def sha256_text(text):
+# ---------------------------------------------------------------
+# 密码哈希与校验
+#
+# 历史版本直接用无盐 SHA-256 存密码，彩虹表可秒破；新写入统一改用 werkzeug 的
+# 加盐哈希。但数据库里既有的账号仍是旧格式，所以校验时保留 SHA-256 兼容分支：
+# 老账号登录成功后由调用方自动升级为新哈希，既不用手工迁移数据，也不会把现有
+# 账号锁死。
+# ---------------------------------------------------------------
+
+# 加盐哈希的算法前缀（werkzeug 3.x 默认 scrypt，较早版本用 pbkdf2:sha256）。
+# 命中这些前缀即视为新格式，否则按历史无盐 SHA-256 处理。
+_SALTED_HASH_PREFIXES = ("pbkdf2:", "scrypt:", "argon2")
+
+# 账号不存在时也跑一次校验，拉平「账号不存在」与「密码错误」的响应耗时，
+# 避免通过响应时间枚举出系统里存在哪些用户名。
+_DUMMY_HASH = generate_password_hash("his-dummy-password")
+
+
+def _legacy_sha256(text):
+    """历史密码哈希算法，仅供兼容旧数据。"""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def hash_password(password):
+    """生成加盐密码哈希（werkzeug 3.x 默认 scrypt）。"""
+    return generate_password_hash(password)
+
+
+def verify_password(stored_hash, password):
+    """校验密码，同时支持加盐哈希与历史无盐 SHA-256 两种格式。"""
+    if not stored_hash:
+        return False
+    if stored_hash.startswith(_SALTED_HASH_PREFIXES):
+        return check_password_hash(stored_hash, password)
+    return hmac.compare_digest(stored_hash, _legacy_sha256(password))
+
+
+def password_needs_rehash(stored_hash):
+    """判断存量密码哈希是否需要升级为加盐格式。"""
+    return bool(stored_hash) and not stored_hash.startswith(_SALTED_HASH_PREFIXES)
 
 
 def current_user():
@@ -260,6 +314,27 @@ def make_no(prefix):
     return prefix + datetime.now().strftime("%Y%m%d%H%M%S")
 
 
+# 可挂号排班列表的公共查询主体。
+# 剩余号源 = 最大号源 - 已挂号 - 尚未过期的有效预约。registrations /
+# appointments / kiosk 三处都要用这段查询，原先各自复制了一份（约 18 行 ×3），
+# 任何调整都要同步改三处。这里抽成常量，各处只拼接自己的 WHERE 与 ORDER BY。
+_SCHEDULE_SELECT_SQL = """
+    SELECT s.schedule_id, s.work_date, s.shift_type, s.clinic_room,
+           s.max_registrations, s.registered_count,
+           doc.doctor_id, doc.doctor_name, doc.title,
+           dept.department_name, doc.consultation_fee,
+           GREATEST(s.max_registrations - s.registered_count -
+             (SELECT COUNT(*) FROM appointments a
+               WHERE a.schedule_id = s.schedule_id AND a.status = '已预约' AND a.expire_time > NOW()), 0) AS remain
+    FROM doctor_schedules s
+    JOIN (
+      SELECT d.doctor_id, u.user_name AS doctor_name, d.title, d.consultation_fee, u.department_id
+      FROM doctors d JOIN users u ON d.user_id = u.user_id
+    ) doc ON s.doctor_id = doc.doctor_id
+    JOIN departments dept ON doc.department_id = dept.department_id
+"""
+
+
 # ============================================================
 # 登录 / 退出
 # ============================================================
@@ -297,6 +372,18 @@ _ENV_ADVICE = {
 
 @app.route("/healthz", methods=["GET"])
 def healthz():
+    # 自检页会暴露数据库主机、用户名、库名等信息。公网部署时建议把
+    # HIS_HEALTH_TOKEN 设为随机串，此后必须带 ?token=xxx 才能看到详情。
+    # 未设置该环境变量时保持开放，方便本地调试与课堂演示。
+    health_token = os.getenv("HIS_HEALTH_TOKEN", "").strip()
+    if health_token and request.args.get("token", "") != health_token:
+        return Response(
+            "部署自检详情需要访问令牌：/healthz?token=xxx\n"
+            "（令牌由环境变量 HIS_HEALTH_TOKEN 指定）\n",
+            status=403,
+            mimetype="text/plain; charset=utf-8",
+        )
+
     import platform
 
     lines = ["医院门诊管理系统 —— 部署自检", "=" * 44]
@@ -357,21 +444,34 @@ def login():
         user = fetch_one(
             """
             SELECT
-              u.user_id, u.user_name, u.username, u.account_status,
+              u.user_id, u.user_name, u.username, u.account_status, u.password_hash,
               r.role_code, r.role_name, d.department_name
             FROM users u
             JOIN roles r ON u.role_id = r.role_id
             LEFT JOIN departments d ON u.department_id = d.department_id
-            WHERE u.username = %s AND u.password_hash = %s
+            WHERE u.username = %s
             """,
-            (username, sha256_text(password)),
+            (username,),
         )
         if not user:
+            # 账号不存在时也跑一次校验，拉平响应耗时，避免被用来枚举用户名
+            verify_password(_DUMMY_HASH, password)
+            flash("用户名或密码错误。", "error")
+            return render_template("login.html")
+        # 取出后立刻从字典剔除，避免密码哈希被写进会话 Cookie
+        stored_hash = user.pop("password_hash", None)
+        if not verify_password(stored_hash, password):
             flash("用户名或密码错误。", "error")
             return render_template("login.html")
         if user["account_status"] != "启用":
             flash("账号已被锁定，无法登录。", "error")
             return render_template("login.html")
+        # 老账号首次登录成功后，把无盐 SHA-256 就地升级为加盐哈希
+        if password_needs_rehash(stored_hash):
+            execute(
+                "UPDATE users SET password_hash = %s WHERE user_id = %s",
+                (hash_password(password), user["user_id"]),
+            )
         session["user"] = user
         execute("UPDATE users SET last_login_at = NOW() WHERE user_id = %s", (user["user_id"],))
         flash(f"登录成功：{user['user_name']}（{user['role_name']}）", "success")
@@ -580,20 +680,7 @@ def registrations():
     )
     patients_rows = fetch_all("SELECT patient_id, patient_no, patient_name, phone FROM patients ORDER BY patient_id")
     schedules = fetch_all(
-        """
-        SELECT s.schedule_id, s.work_date, s.shift_type, s.clinic_room,
-               s.max_registrations, s.registered_count,
-               doc.doctor_id, doc.doctor_name, doc.title,
-               dept.department_name, doc.consultation_fee,
-               GREATEST(s.max_registrations - s.registered_count -
-                 (SELECT COUNT(*) FROM appointments a
-                   WHERE a.schedule_id = s.schedule_id AND a.status = '已预约' AND a.expire_time > NOW()), 0) AS remain
-        FROM doctor_schedules s
-        JOIN (
-          SELECT d.doctor_id, u.user_name AS doctor_name, d.title, d.consultation_fee, u.department_id
-          FROM doctors d JOIN users u ON d.user_id = u.user_id
-        ) doc ON s.doctor_id = doc.doctor_id
-        JOIN departments dept ON doc.department_id = dept.department_id
+        _SCHEDULE_SELECT_SQL + """
         WHERE s.work_date = %s AND s.schedule_status = '正常'
         ORDER BY s.work_date, dept.department_name
         """,
@@ -677,20 +764,7 @@ def appointments():
         datetime.now() + timedelta(days=1)
     ).strftime("%Y-%m-%d")
     schedules = fetch_all(
-        """
-        SELECT s.schedule_id, s.work_date, s.shift_type, s.clinic_room,
-               s.max_registrations, s.registered_count,
-               doc.doctor_id, doc.doctor_name, doc.title,
-               dept.department_name, doc.consultation_fee,
-               GREATEST(s.max_registrations - s.registered_count -
-                 (SELECT COUNT(*) FROM appointments a
-                   WHERE a.schedule_id = s.schedule_id AND a.status = '已预约' AND a.expire_time > NOW()), 0) AS remain
-        FROM doctor_schedules s
-        JOIN (
-          SELECT d.doctor_id, u.user_name AS doctor_name, d.title, d.consultation_fee, u.department_id
-          FROM doctors d JOIN users u ON d.user_id = u.user_id
-        ) doc ON s.doctor_id = doc.doctor_id
-        JOIN departments dept ON doc.department_id = dept.department_id
+        _SCHEDULE_SELECT_SQL + """
         WHERE s.work_date = %s AND s.schedule_status = '正常'
         ORDER BY s.work_date, dept.department_name, s.shift_type
         """,
@@ -956,20 +1030,7 @@ def kiosk():
                 (patient["patient_id"],),
             )
     schedules = fetch_all(
-        """
-        SELECT s.schedule_id, s.work_date, s.shift_type, s.clinic_room,
-               s.max_registrations, s.registered_count,
-               doc.doctor_id, doc.doctor_name, doc.title,
-               dept.department_name, doc.consultation_fee,
-               GREATEST(s.max_registrations - s.registered_count -
-                 (SELECT COUNT(*) FROM appointments a
-                   WHERE a.schedule_id = s.schedule_id AND a.status = '已预约' AND a.expire_time > NOW()), 0) AS remain
-        FROM doctor_schedules s
-        JOIN (
-          SELECT d.doctor_id, u.user_name AS doctor_name, d.title, d.consultation_fee, u.department_id
-          FROM doctors d JOIN users u ON d.user_id = u.user_id
-        ) doc ON s.doctor_id = doc.doctor_id
-        JOIN departments dept ON doc.department_id = dept.department_id
+        _SCHEDULE_SELECT_SQL + """
         WHERE s.work_date = CURDATE() AND s.schedule_status = '正常'
         ORDER BY dept.department_name, s.shift_type
         """
@@ -1519,20 +1580,32 @@ def export_csv(name):
 
     title, sql = queries[name]
     rows = fetch_all(sql)
-    output = []
+
+    # 用 csv 模块写：字段里的逗号、双引号、换行会被自动转义并加引号。
+    # 之前手工 ",".join() 拼接，患者地址、诊断内容一旦含逗号就会错列，Excel 打开即乱。
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
     if rows:
         headers = list(rows[0].keys())
-        output.append(",".join(headers))
+        writer.writerow(headers)
         for row in rows:
-            output.append(",".join(str(row.get(header, "")) for header in headers))
+            writer.writerow(["" if row.get(h) is None else row.get(h) for h in headers])
     else:
-        output.append("暂无数据")
-    csv_text = "\ufeff" + "\n".join(output)
-    filename = f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        writer.writerow(["暂无数据"])
+
+    # 前置 UTF-8 BOM，否则 Excel 会把中文认成乱码
+    csv_text = "\ufeff" + buffer.getvalue()
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # filename 用纯 ASCII 兜底，filename* 按 RFC 5987 带中文名，现代浏览器优先取后者
+    ascii_name = f"{name}_{stamp}.csv"
+    utf8_name = quote(f"{title}_{stamp}.csv")
     return Response(
         csv_text,
         mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={
+            "Content-Disposition":
+                f"attachment; filename={ascii_name}; filename*=UTF-8''{utf8_name}"
+        },
     )
 
 
@@ -1878,7 +1951,7 @@ def users():
                             dept_id,
                             request.form.get("phone") or None,
                             username,
-                            sha256_text(password),
+                            hash_password(password),
                             request.form.get("title") or "主治医师",
                             request.form.get("specialty") or None,
                             float(request.form.get("consultation_fee") or 0),
@@ -1896,14 +1969,14 @@ def users():
                             role_id,
                             request.form.get("phone") or None,
                             username,
-                            sha256_text(password),
+                            hash_password(password),
                         ],
                     )
                 flash("新账号注册成功。", "success")
             elif action == "reset_pwd":
                 execute(
                     "UPDATE users SET password_hash = %s WHERE user_id = %s",
-                    (sha256_text(request.form["new_password"]), int(request.form["user_id"])),
+                    (hash_password(request.form["new_password"]), int(request.form["user_id"])),
                 )
                 flash("密码已重置。", "success")
             elif action == "toggle_status":

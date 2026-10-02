@@ -238,3 +238,35 @@ def call_proc(proc_name, args):
         raise
     finally:
         cursor.close()
+
+
+def execute_atomic(statements):
+    """
+    在同一个事务里按顺序执行多条写语句：全部成功才提交，任一条失败整体回滚。
+
+    为什么需要它：``execute()`` 每调用一次就自己 commit。像「删医生档案 ->
+    删操作日志 -> 删账号」这种多步删除，一旦中间或最后一步被外键拦下，
+    前面几步其实已经落库，会留下「删了一半」的脏数据；业务提示
+    「该数据已被其它业务记录引用，不能删除」也就变成假话了。
+    需要整体成败一致的场景请改用本函数。
+
+    :param statements: [(sql, params), ...]，params 可为 None
+    :return: 最后一条语句的受影响行数
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    affected = 0
+    try:
+        for sql, params in statements:
+            cursor.execute(sql, params or ())
+            affected = cursor.rowcount
+        conn.commit()
+        return affected
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        cursor.close()

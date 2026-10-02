@@ -34,7 +34,7 @@ CREATE TABLE users (
   role_id INT NOT NULL COMMENT '角色编号',
   phone VARCHAR(20) NOT NULL UNIQUE COMMENT '联系电话',
   username VARCHAR(50) NOT NULL UNIQUE COMMENT '登录名',
-  password_hash VARCHAR(128) NOT NULL COMMENT '密码哈希',
+  password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希（加盐，约103字符，预留至255）',
   account_status ENUM('启用','锁定') NOT NULL DEFAULT '启用' COMMENT '账号状态',
   last_login_at DATETIME NULL COMMENT '最近登录时间',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '建档时间',

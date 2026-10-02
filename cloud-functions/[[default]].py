@@ -33,10 +33,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 import mysql.connector
+import mysql.connector.errors
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from db import call_proc, close_request_connections, execute, fetch_all, fetch_one, get_connection
+from db import (call_proc, close_request_connections, execute, execute_atomic,
+                fetch_all, fetch_one, get_connection)
 
 
 # 模板与静态资源目录按「本文件所在目录」定位，
@@ -193,13 +195,17 @@ def handle_unexpected_error(error):
         return error
 
     app.logger.error("未处理异常：%s", error, exc_info=True)
+    # 注意：这里刻意不回显异常类型与原文。
+    # 早期版本把 type(error).__name__ 和 str(error) 直接拼进响应体，
+    # 等于把数据库地址、表结构、SQL 片段暴露给任何能触发 500 的人。
+    # 排查用的完整堆栈只写服务端日志（云端即 EdgeOne 函数日志）。
     return Response(
-        "服务端内部错误（500）。\n\n"
-        f"异常信息：{type(error).__name__}: {error}\n\n"
-        "排查建议：\n"
-        "  1. 浏览器打开 /healthz，查看环境变量是否生效、数据库能否连上；\n"
-        "  2. 常见原因：HIS_DB_* 环境变量未配置、漏设 HIS_DB_SSL=1、\n"
-        "     或改完环境变量后没有重新部署（必须重新部署才生效）。\n",
+        "服务端内部错误（500），请稍后重试或联系系统管理员。\n\n"
+        "管理员排查建议（普通用户请忽略）：\n"
+        "  1. 服务端日志中检索「未处理异常」，那里有完整堆栈；\n"
+        "  2. 浏览器打开 /healthz，确认环境变量生效、数据库可连通；\n"
+        "  3. 常见原因：HIS_DB_* 未配置、漏设 HIS_DB_SSL=1，"
+        "或改完环境变量后没有重新部署（必须重新部署才生效）。\n",
         status=500,
         mimetype="text/plain; charset=utf-8",
     )
@@ -218,9 +224,16 @@ def handle_unexpected_error(error):
 # 命中这些前缀即视为新格式，否则按历史无盐 SHA-256 处理。
 _SALTED_HASH_PREFIXES = ("pbkdf2:", "scrypt:", "argon2")
 
+# 这里刻意显式指定 pbkdf2:sha256，而不是沿用 generate_password_hash() 的默认值：
+# 默认的 scrypt 哈希长约 162 个字符，而 users.password_hash 列宽是 VARCHAR(128)、
+# 存储过程参数也是 VARCHAR(128)，写入会被 MySQL 截断（或严格模式下直接报
+# 1406 Data too long），导致「登录后自动升级哈希」「重置密码」「新增账号」三条
+# 路径全部失效。pbkdf2:sha256 哈希约 103 个字符，能安全落入现有列宽。
+_PASSWORD_HASH_METHOD = "pbkdf2:sha256"
+
 # 账号不存在时也跑一次校验，拉平「账号不存在」与「密码错误」的响应耗时，
 # 避免通过响应时间枚举出系统里存在哪些用户名。
-_DUMMY_HASH = generate_password_hash("his-dummy-password")
+_DUMMY_HASH = generate_password_hash("his-dummy-password", method=_PASSWORD_HASH_METHOD)
 
 
 def _legacy_sha256(text):
@@ -229,8 +242,11 @@ def _legacy_sha256(text):
 
 
 def hash_password(password):
-    """生成加盐密码哈希（werkzeug 3.x 默认 scrypt）。"""
-    return generate_password_hash(password)
+    """生成加盐密码哈希，长度必须能放进 users.password_hash 列。
+
+    算法由 _PASSWORD_HASH_METHOD 决定，详见该常量的注释。
+    """
+    return generate_password_hash(password, method=_PASSWORD_HASH_METHOD)
 
 
 def verify_password(stored_hash, password):
@@ -307,6 +323,14 @@ def inject_common_data():
 
 
 def handle_db_error(error):
+    """数据库异常的第二层兜底。
+
+    唯一键/外键/超长这类「完整性约束」错误在更靠前的
+    ``except mysql.connector.errors.IntegrityError`` 分支里已被
+    ``handle_integrity_error`` 接走（并能指出具体是哪个字段），
+    走到这里的主要是连接失败、超时、权限、SQL 语法等其余 mysql 错误。
+    下面的 Duplicate entry 判断保留作二重保险。
+    """
     message = str(error)
     # 存储过程 SIGNAL 抛出的业务错误（1644 为 SIGNAL 的错误码）
     if "1644" in message:
@@ -321,6 +345,92 @@ def handle_db_error(error):
     if "Incorrect datetime value" in message or "Incorrect date value" in message:
         return "日期格式错误：日期用 2026-09-14，日期时间用 2026-09-14 08:00:00。"
     return f"数据库操作失败：{message}"
+# ---------------------------------------------------------------
+# 异常分层（统一在这里翻译成用户能看懂的中文）
+#
+# 对应 Java 里「先捕具体异常、再捕父类、最后兜底」的写法：
+#     DuplicateKeyException  -> mysql.connector.errors.IntegrityError
+#     NullPointerException   -> KeyError / TypeError / ValueError（必填项没传）
+#     SQLException           -> mysql.connector.Error
+#     Exception              -> 全局 @app.errorhandler(Exception)
+#
+# 顺序有硬性要求：IntegrityError 是 Error 的子类，写在 Error 后面会永远不生效。
+# ---------------------------------------------------------------
+
+# 唯一索引名 -> 中文字段名。
+# MySQL 1062 报错文本形如 "Duplicate entry 'x' for key 'users.username'"，
+# 只靠「有没有 Duplicate entry」无法告诉用户到底哪个字段撞了，所以按索引名映射。
+_UNIQUE_FIELD_HINTS = {
+    "username": "登录名",
+    "user_no": "工号",
+    "user_name": "姓名",
+    "phone": "手机号",
+    "role_code": "角色编码",
+    "department_code": "科室编码",
+    "department_name": "科室名称",
+    "doctor_no": "医生工号",
+    "patient_no": "病历号",
+    "id_card": "身份证号",
+    "medicine_code": "药品编码",
+    "item_code": "检验项目编码",
+    "reg_no": "挂号单号",
+    "prescription_no": "处方号",
+    "payment_no": "收费单号",
+    "test_no": "检验单号",
+    "uk_schedule_doctor_date": "该医生当天该班次的排班",
+    "PRIMARY": "主键",
+}
+
+
+def handle_integrity_error(error):
+    """唯一约束 / 外键约束冲突（对应 DuplicateKeyException 分支）。
+
+    这一层原先被 handle_db_error 用「字符串里有没有 Duplicate entry」粗放地兜着，
+    既分不清是哪个字段重复，也吃不到外键错误码。这里按 errno 精确分流。
+    """
+    errno = getattr(error, "errno", None)
+    message = str(error)
+
+    # 1062：唯一索引/主键重复
+    if errno == 1062 or "Duplicate entry" in message:
+        match = re.search(r"for key '([^']+)'", message)
+        raw_key = match.group(1) if match else ""
+        index_name = raw_key.rpartition(".")[2] or raw_key
+        label = _UNIQUE_FIELD_HINTS.get(raw_key) or _UNIQUE_FIELD_HINTS.get(index_name)
+        if label:
+            return f"{label}已存在，请更换后重试。"
+        return "数据重复：该记录的唯一字段已被占用，请检查后重试。"
+
+    # 1451：有子记录引用，不能删；1452：引用了不存在的父记录
+    if errno == 1451 or "Cannot delete or update a parent row" in message:
+        return "该数据已被其它业务记录引用（挂号、处方或收费等），不能直接删除。"
+    if errno == 1452 or "a foreign key constraint fails" in message:
+        return "关联的数据不存在或已被删除，请刷新页面后重试。"
+
+    # 1406：数据超长（严格模式下会直接报错）；1264：数值越界
+    if errno == 1406 or "Data too long" in message:
+        return "输入内容超出字段长度限制，请缩短后重试。"
+    if errno == 1264 or "Out of range value" in message:
+        return "输入数值超出允许范围，请检查后重试。"
+
+    return "数据不符合完整性约束，请检查输入后重试。"
+
+
+def handle_param_error(error, default_message="提交参数格式错误，请检查后重试。"):
+    """必填参数缺失 / 类型不符（对应 NullPointerException 分支）。
+
+    - ``request.form["x"]`` 取不到字段 -> KeyError
+    - 对 None 调用 ``.strip()`` / ``.upper()`` -> TypeError
+    - ``int("")`` / ``int(None)`` -> ValueError
+    这三种都属于「表单没填全」，对使用者只应看到一句「必填项不能为空」，
+    而不该冒到全局 500 页面上去。
+    """
+    if isinstance(error, KeyError) and error.args:
+        return f"必填参数不能为空，请检查后重试。（缺少字段：{error.args[0]}）"
+    if isinstance(error, TypeError):
+        return "必填参数不能为空：某个必填项没有填，请检查后重试。"
+    return default_message
+
 
 
 def make_no(prefix):
@@ -608,8 +718,12 @@ def patients():
             elif action == "delete":
                 execute("DELETE FROM patients WHERE patient_id = %s", (request.form["patient_id"],))
                 flash("患者档案已删除。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
+        except (KeyError, TypeError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("patients"))
 
     keyword = request.args.get("keyword", "").strip()
@@ -671,8 +785,12 @@ def registrations():
                     ],
                 )
                 flash("退号成功，号源已恢复，挂号费已退回。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
+        except (KeyError, TypeError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("registrations"))
 
     reg_date = request.args.get("reg_date") or datetime.now().strftime("%Y-%m-%d")
@@ -754,10 +872,12 @@ def appointments():
                     ],
                 )
                 flash("预约已取消，号源已释放。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("appointments"))
 
     # 患者识别（同自助终端：身份证号或手机号）
@@ -854,6 +974,8 @@ def appointment_checkin(appointment_id):
                 ],
             )
             flash("取号成功，已转正式挂号并收取挂号费。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
             return redirect(url_for("appointments"))
@@ -962,11 +1084,13 @@ def kiosk():
                     "kiosk.html", id_card="", patient=None, today_regs=[],
                     schedules=[], success=success,
                 )
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
             return redirect(url_for("kiosk", id_card=request.form.get("id_card", "").strip()))
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
             return redirect(url_for("kiosk"))
 
     id_card = request.args.get("id_card", "").strip()
@@ -1140,10 +1264,12 @@ def schedules():
                     return redirect(url_for("schedules"))
                 execute("DELETE FROM doctor_schedules WHERE schedule_id = %s", (schedule_id,))
                 flash("排班已删除。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("schedules"))
 
     work_date = request.args.get("work_date") or datetime.now().strftime("%Y-%m-%d")
@@ -1276,10 +1402,12 @@ def prescriptions():
                 )
                 flash("已开始接诊，患者状态更新为就诊中。" if action == "start_visit"
                       else "已完成就诊，患者状态更新为已就诊。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("prescriptions"))
 
     status = request.args.get("status") or ""
@@ -1406,8 +1534,12 @@ def payments():
                     ],
                 )
                 flash("检验收费成功。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
+        except (KeyError, TypeError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("payments"))
 
     waiting = fetch_all(
@@ -1506,8 +1638,12 @@ def medicines():
                     ),
                 )
                 flash("药品信息已更新。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
+        except (KeyError, TypeError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("medicines"))
 
     keyword = request.args.get("keyword", "").strip()
@@ -1660,10 +1796,12 @@ def vitals():
                     ],
                 )
                 flash("体征记录已保存。", "success")
+            except mysql.connector.errors.IntegrityError as error:
+                flash(handle_integrity_error(error), "error")
             except mysql.connector.Error as error:
                 flash(handle_db_error(error), "error")
-            except ValueError:
-                flash("体征数值格式错误，请检查后重试。", "error")
+            except (KeyError, TypeError, ValueError) as error:
+                flash(handle_param_error(error, "体征数值格式错误，请检查后重试。"), "error")
         return redirect(url_for("vitals"))
 
     patients = fetch_all(
@@ -1721,10 +1859,12 @@ def lab_tests():
             elif action == "cancel_test":
                 call_proc("sp_cancel_lab_test", [int(request.form["test_id"]), int(user["user_id"])])
                 flash("检验单已作废。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("lab_tests"))
 
     status = request.args.get("status", "").strip()
@@ -1849,6 +1989,8 @@ def lab_results(test_id):
                         ],
                     )
                 flash("检验结果已保存，状态已自动流转。", "success")
+            except mysql.connector.errors.IntegrityError as error:
+                flash(handle_integrity_error(error), "error")
             except mysql.connector.Error as error:
                 flash(handle_db_error(error), "error")
         return redirect(url_for("lab_results", test_id=test_id))
@@ -1875,8 +2017,12 @@ def diagnosis():
                     (request.form.get("diagnosis") or None, int(request.form["patient_id"])),
                 )
                 flash("诊断结果已保存。", "success")
+            except mysql.connector.errors.IntegrityError as error:
+                flash(handle_integrity_error(error), "error")
             except mysql.connector.Error as error:
                 flash(handle_db_error(error), "error")
+            except (KeyError, TypeError) as error:
+                flash(handle_param_error(error), "error")
         return redirect(url_for("diagnosis"))
     patients = fetch_all(
         "SELECT patient_id, patient_no, patient_name, diagnosis FROM patients ORDER BY patient_id"
@@ -1899,8 +2045,12 @@ def pharmacy():
             try:
                 call_proc("sp_dispense", [int(request.form["prescription_id"]), int(user["user_id"])])
                 flash("发药成功。", "success")
+            except mysql.connector.errors.IntegrityError as error:
+                flash(handle_integrity_error(error), "error")
             except mysql.connector.Error as error:
                 flash(handle_db_error(error), "error")
+            except (KeyError, TypeError) as error:
+                flash(handle_param_error(error), "error")
         return redirect(url_for("pharmacy"))
 
     pending = fetch_all(
@@ -2003,16 +2153,25 @@ def users():
                 if target_id == int(user["user_id"]):
                     flash("不能删除当前登录账号。", "error")
                 else:
-                    # 先清理医生附属档案（新建医生账号会自动生成档案，若不清理会触发外键拦截）
-                    execute("DELETE FROM doctors WHERE user_id = %s", (target_id,))
-                    # 清理该账号产生的操作日志（登录/注册留痕，非业务单据）
-                    execute("DELETE FROM operation_logs WHERE user_id = %s", (target_id,))
-                    execute("DELETE FROM users WHERE user_id = %s", (target_id,))
+                    # 三步删除必须整体成败一致。execute() 每调用一次就提交，
+                    # 若中途被外键拦下（例如该医生还有挂号记录），前面几步已经落库，
+                    # 会留下「医生档案已删、账号还在」的半删脏数据；而下面那条
+                    # 「已被其它业务记录引用，不能删除」的提示也会因此变成假话。
+                    # 因此这里改用 execute_atomic，三条语句同一个事务，失败全部回滚。
+                    # 先清理医生附属档案（新建医生账号会自动生成档案，不清理会触发外键拦截），
+                    # 再清理该账号产生的操作日志（登录/注册留痕，非业务单据）。
+                    execute_atomic([
+                        ("DELETE FROM doctors WHERE user_id = %s", (target_id,)),
+                        ("DELETE FROM operation_logs WHERE user_id = %s", (target_id,)),
+                        ("DELETE FROM users WHERE user_id = %s", (target_id,)),
+                    ])
                     flash("账号已删除。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("users"))
 
     rows = fetch_all(
@@ -2062,10 +2221,12 @@ def announcements():
                     (int(request.form["announcement_id"]),),
                 )
                 flash("公告已删除。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("announcements"))
 
     rows = fetch_all(
@@ -2122,10 +2283,12 @@ def departments():
                     (int(request.form["department_id"]),),
                 )
                 flash("科室已删除。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
         except mysql.connector.Error as error:
             flash(handle_db_error(error), "error")
-        except ValueError:
-            flash("提交参数格式错误，请检查后重试。", "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
         return redirect(url_for("departments"))
 
     rows = fetch_all(

@@ -22,7 +22,7 @@ CREATE PROCEDURE sp_add_user(
   IN p_role_id INT,
   IN p_phone VARCHAR(20),
   IN p_username VARCHAR(50),
-  IN p_password_hash VARCHAR(128)
+  IN p_password_hash VARCHAR(255)
 )
 BEGIN
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -45,7 +45,7 @@ CREATE PROCEDURE sp_add_doctor(
   IN p_department_id INT,
   IN p_phone VARCHAR(20),
   IN p_username VARCHAR(50),
-  IN p_password_hash VARCHAR(128),
+  IN p_password_hash VARCHAR(255),
   IN p_title VARCHAR(30),
   IN p_specialty VARCHAR(100),
   IN p_consultation_fee DECIMAL(10,2),

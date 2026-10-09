@@ -241,6 +241,74 @@ def call_proc(proc_name, args):
         cursor.close()
 
 
+def call_proc_scalar(proc_name, args, out_index=None, out_type="INT"):
+    """调用带 OUT 参数的存储过程，并返回该 OUT 参数的值。
+
+    为什么不用 ``callproc``：mysql-connector 的 ``callproc`` 对 OUT 参数的
+    处理是「发送时给占位符、但不回读」，函数返回后拿不到输出值。
+    可靠做法是走会话变量：``SET @out = ...`` → ``CALL proc(..., @out)`` →
+    ``SELECT @out``，三步在同一连接（同一会话）上执行。
+
+    :param args: 输入参数列表（不含 OUT 参数）
+    :param out_index: OUT 参数在存储过程签名中的位置（1 起算）。
+                      为 None 时用「最后一个参数」。
+    :param out_type: 会话变量初始值类型，INT 或 VARCHAR
+    :return: OUT 参数的值（按 out_type 转换）
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # ---- 先算清楚「存储过程一共有几个形参」----
+        # 形参总数 = 输入参数个数 + 1（OUT 参数自己占一个位置）。
+        # 注意不能写成 max(pos, n_in + 1)：当 out_index 落在输入参数范围内
+        # （比如 10 个 IN + 第 11 个是 OUT，调用方却把 out_index 传成 10）
+        # 时，max(10, 11) = 11，循环会多拼出一个 "%s"，实参串变成
+        #    CALL proc(%s,...,%s,@his_out,%s)
+        # 结果 OUT 位置被挪到第 10 个形参、真正的第 11 个形参拿到了一个
+        # 字面量占位符，MySQL 直接报
+        #   1414 OUT or INOUT argument 11 ... is not a variable
+        # 所以这里必须以「形参总数」为准，而不是以 out_index 为准。
+        n_in = len(args)
+        n_params = n_in + 1
+        pos = out_index if out_index is not None else n_params
+        if not 1 <= pos <= n_params:
+            raise ValueError(
+                "out_index=%r 超出存储过程 %s 的形参范围（共 %d 个）"
+                % (out_index, proc_name, n_params)
+            )
+
+        if out_type.upper() == "VARCHAR":
+            cursor.execute("SET @his_out = ''")
+        else:
+            cursor.execute("SET @his_out = 0")
+
+        # 按签名拼出实参列表，OUT 位置放 @his_out
+        placeholders = []
+        for i in range(1, n_params + 1):
+            placeholders.append("@his_out" if i == pos else "%s")
+        call_sql = "CALL %s(%s)" % (proc_name, ", ".join(placeholders))
+        cursor.execute(call_sql, tuple(args))
+
+        # 存储过程可能返回结果集，不读完会导致后续语句报 Unread result found
+        for result in cursor.stored_results():
+            result.fetchall()
+
+        cursor.execute("SELECT @his_out AS v")
+        value = cursor.fetchone()[0]
+        conn.commit()
+        if out_type.upper() == "VARCHAR":
+            return value
+        return int(value) if value is not None else None
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        cursor.close()
+
+
 def execute_atomic(statements):
     """
     在同一个事务里按顺序执行多条写语句：全部成功才提交，任一条失败整体回滚。

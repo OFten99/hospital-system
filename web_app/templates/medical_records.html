@@ -40,8 +40,8 @@
   <form method="post" id="mr-form">
     <input type="hidden" name="action" value="save">
     <input type="hidden" name="record_id" value="{{ editing.record_id if editing else 0 }}">
-    <input type="hidden" name="mr_patient_id" value="{{ editing.patient_id if editing else '' }}">
-    <input type="hidden" name="mr_doctor_id" value="{{ editing.doctor_id if editing else '' }}">
+    {# 患者 / 医生 / 科室不在这里提交：服务端一律以「挂号记录」为准
+       （见 app.py 里 reg_ctx 的查询），避免隐藏域被篡改导致开单医生错位。 #}
 
     <div class="form-grid">
       <div class="field wide">
@@ -237,7 +237,7 @@
 </div>
 
 <script>
-// 选择就诊记录后：回填 patient_id，并对「已有病历」给出提示
+// 选择就诊记录后：对「已有病历」给出提示
 (function () {
   var sel = document.getElementById('reg-select');
   if (!sel) return;
@@ -245,8 +245,6 @@
   sel.addEventListener('change', function () {
     var opt = sel.options[sel.selectedIndex];
     if (!opt || !opt.value) { if (hint) hint.textContent = ''; return; }
-    var pidField = document.querySelector('input[name="mr_patient_id"]');
-    if (pidField) pidField.value = opt.dataset.patient || '';
     var has = opt.dataset.hasRecord === '1';
     if (hint) {
       hint.textContent = has

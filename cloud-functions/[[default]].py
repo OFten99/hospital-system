@@ -2033,17 +2033,30 @@ def medical_records():
                 # registration_id 直接带上，使检验与本次就诊挂钩）
                 item_ids = request.form.getlist("item_ids")
                 if item_ids:
-                    dept_id = fetch_one(
-                        "SELECT department_id FROM registrations WHERE registration_id = %s",
+                    # 患者 / 医生 / 科室一律以挂号记录为准，不读表单里的
+                    # mr_patient_id / mr_doctor_id —— 开单医生必须是接诊医生本人，
+                    # 不能被前端隐藏域篡改（上面已校验 reg.doctor_id == 本人）。
+                    reg_ctx = fetch_one(
+                        """
+                        SELECT r.patient_id, r.doctor_id,
+                               COALESCE(r.department_id, u.department_id) AS department_id
+                        FROM registrations r
+                        JOIN doctors d ON r.doctor_id = d.doctor_id
+                        JOIN users u ON d.user_id = u.user_id
+                        WHERE r.registration_id = %s
+                        """,
                         (registration_id,),
-                    )["department_id"]
+                    )
+                    if not reg_ctx or reg_ctx["department_id"] is None:
+                        flash("无法确定本次就诊的科室，检验申请未开具，请先补全科室。", "error")
+                        return redirect(url_for("medical_records"))
                     call_proc(
                         "sp_add_lab_test",
                         [
                             make_no("LAB"),
-                            int(request.form["mr_patient_id"]),
-                            int(request.form["mr_doctor_id"]),
-                            dept_id,
+                            reg_ctx["patient_id"],
+                            reg_ctx["doctor_id"],
+                            reg_ctx["department_id"],
                             registration_id,
                             request.form.get("sample_type") or "血液",
                             ",".join(item_ids),
@@ -2304,13 +2317,41 @@ def lab_tests():
                 if user["role_code"] not in ("DOCTOR", "ADMIN"):
                     flash("仅医生或管理员可以开具检验申请。", "error")
                     return redirect(url_for("lab_tests"))
+
+                # ---- 开单医生 / 科室：医生端强制锁死成本人 ----
+                # 页面上已经把医生的「开单医生」渲染成只读，但只读仅是前端表现，
+                # 直接构造 POST 仍可伪造 doctor_id。医疗文书（检验申请单）的
+                # 开单医生必须是真实操作人，所以这里以**服务端会话**为准：
+                #   * DOCTOR：忽略表单提交的 doctor_id/department_id，一律取本人；
+                #   * ADMIN ：保留下拉选择（管理员可代开单），但医生必须真实存在。
+                if user["role_code"] == "DOCTOR":
+                    me = fetch_one(
+                        """
+                        SELECT doc.doctor_id, u.department_id
+                        FROM doctors doc JOIN users u ON doc.user_id = u.user_id
+                        WHERE doc.user_id = %s
+                        """,
+                        (user["user_id"],),
+                    )
+                    if not me:
+                        flash("当前账号没有对应的医生档案，无法开具检验申请。", "error")
+                        return redirect(url_for("lab_tests"))
+                    doctor_id = me["doctor_id"]
+                    department_id = me["department_id"]
+                    if department_id is None:
+                        flash("当前医生账号未指定科室，请先在「用户管理」里补全科室再开单。", "error")
+                        return redirect(url_for("lab_tests"))
+                else:
+                    doctor_id = int(request.form["doctor_id"])
+                    department_id = int(request.form["department_id"])
+
                 call_proc(
                     "sp_add_lab_test",
                     [
                         make_no("LAB"),
                         int(request.form["patient_id"]),
-                        int(request.form["doctor_id"]),
-                        int(request.form["department_id"]),
+                        doctor_id,
+                        department_id,
                         int(request.form["registration_id"]) if request.form.get("registration_id") else None,
                         request.form.get("sample_type") or "血液",
                         ",".join(request.form.getlist("item_ids")),
@@ -2346,15 +2387,35 @@ def lab_tests():
     else:
         rows = fetch_all("SELECT * FROM v_lab_test_list ORDER BY test_id DESC LIMIT 100")
     patients = fetch_all("SELECT patient_id, patient_no, patient_name FROM patients ORDER BY patient_id")
+    # ⚠️ 这里必须是 LEFT JOIN departments：users.department_id 可空（新增用户时
+    # 可以选「不指定科室」），一旦为空，INNER JOIN 会把这名医生整行丢掉，
+    # 表现为「医生明明存在，开单页面的医生下拉里却找不到他」。
     doctors = fetch_all(
         """
-        SELECT doc.doctor_id, u.user_name, u.department_id, d.department_name
+        SELECT doc.doctor_id, u.user_name, u.department_id,
+               COALESCE(d.department_name, '未指定科室') AS department_name
         FROM doctors doc
         JOIN users u ON doc.user_id = u.user_id
-        JOIN departments d ON u.department_id = d.department_id
-        ORDER BY doc.doctor_id
+        LEFT JOIN departments d ON u.department_id = d.department_id
+        ORDER BY u.department_id IS NULL, u.department_id, doc.doctor_id
         """
     )
+    # ---- 当前登录医生的身份（用于把「开单医生」锁死成他自己）----
+    # 医生的 session 里只有 user_id / user_name / role_code / department_name，
+    # 没有 doctor_id 与 department_id，所以这里要回查一次。
+    my_doctor = None
+    if user["role_code"] == "DOCTOR":
+        my_doctor = fetch_one(
+            """
+            SELECT doc.doctor_id, doc.user_id, u.user_name, u.department_id,
+                   COALESCE(d.department_name, '未指定科室') AS department_name
+            FROM doctors doc
+            JOIN users u ON doc.user_id = u.user_id
+            LEFT JOIN departments d ON u.department_id = d.department_id
+            WHERE doc.user_id = %s
+            """,
+            (user["user_id"],),
+        )
     items = fetch_all("SELECT * FROM lab_items WHERE status = '启用' ORDER BY item_category, item_id")
     regs = fetch_all(
         """
@@ -2375,6 +2436,7 @@ def lab_tests():
         items=items,
         regs=regs,
         status=status,
+        my_doctor=my_doctor,
     )
 
 

@@ -104,7 +104,7 @@
           <td>{{ u.username }}</td>
           <td><span class="badge">{{ u.role_name }}</span></td>
           <td>{{ u.department_name or '-' }}</td>
-          <td><span class="badge {{ 'warn' if u.account_status == '停用' else '' }}">{{ u.account_status }}</span></td>
+          <td><span class="badge {{ 'warn' if u.account_status == '锁定' else '' }}">{{ u.account_status }}</span></td>
           <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '从未登录' }}</td>
           <td class="ops">
             <form method="post" class="inline-form" onsubmit="return confirm('重置密码为 123456？')">
@@ -116,7 +116,7 @@
             <form method="post" class="inline-form">
               <input type="hidden" name="action" value="toggle_status">
               <input type="hidden" name="user_id" value="{{ u.user_id }}">
-              <button class="secondary-btn" type="submit">{{ '启用' if u.account_status == '停用' else '停用' }}</button>
+              <button class="secondary-btn" type="submit">{{ '启用' if u.account_status == '锁定' else '锁定' }}</button>
             </form>
             <form method="post" class="inline-form" onsubmit="return confirm('确定删除该账号？')">
               <input type="hidden" name="action" value="delete_user">

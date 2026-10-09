@@ -30,6 +30,20 @@
           {% endfor %}
         </select>
       </div>
+      {% if my_doctor %}
+      {# 医生端：开单医生锁死成本人（只读展示），避免误选/越权代开单。
+         科室随医生本人自动带出，同样不可改。服务端会再次强制覆盖这两个值。 #}
+      <div class="field">
+        <label>开单医生</label>
+        <input type="text" value="{{ my_doctor.user_name }}" readonly>
+        <input type="hidden" name="doctor_id" value="{{ my_doctor.doctor_id }}">
+      </div>
+      <div class="field">
+        <label>开单科室</label>
+        <input type="text" value="{{ my_doctor.department_name }}" readonly>
+        <input type="hidden" name="department_id" value="{{ my_doctor.department_id }}">
+      </div>
+      {% else %}
       <div class="field">
         <label>开单医生</label>
         <select name="doctor_id" required onchange="syncDept()">
@@ -46,6 +60,7 @@
           {% endfor %}
         </select>
       </div>
+      {% endif %}
       <div class="field">
         <label>关联挂号（可选）</label>
         <select name="registration_id">
@@ -164,10 +179,12 @@
 
 <script>
 function syncDept() {
+  // 医生端「开单医生」是只读 input + hidden（没有 select），此时不需要联动科室
   var sel = document.querySelector('select[name="doctor_id"]');
+  if (!sel) return;
   var opt = sel.options[sel.selectedIndex];
   var dept = document.querySelector('select[name="department_id"]');
-  if (opt && opt.dataset.dept) {
+  if (opt && opt.dataset.dept && dept) {
     dept.value = opt.dataset.dept;
   }
 }

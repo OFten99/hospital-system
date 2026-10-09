@@ -278,7 +278,11 @@ def login_required(view_func):
 
 
 PERMISSIONS = {
-    "REGISTRAR": {"dashboard", "patients", "registrations", "schedules", "appointments"},
+    # 挂号员：只做线下窗口的挂号 / 退号 / 患者建档 / 看排班。
+    # 「预约挂号」是线上渠道（患者自助 / 自助机）能力，窗口挂号员不再开放，
+    # 故这里不含 "appointments"。菜单入口由 base.html 的 role_allowed('appointments')
+    # 自动隐藏；若直接敲 /appointments 会被 permission_required 挡回首页。
+    "REGISTRAR": {"dashboard", "patients", "registrations", "schedules"},
     "REGMACHINE": {"kiosk"},
     # 医生：排班 + 门诊病历（病历页内可顺带开检验）+ 处方 + 检验科 + 体征
     # 说明：这里必须与 base.html 里 DOCTOR 分支写死的菜单项一一对应，

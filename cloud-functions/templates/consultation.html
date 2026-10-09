@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}门诊接诊 - 医院门诊系统{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>门诊接诊工作台</h1>
+    <p>今日接诊 {{ today }}{% if my_doctor_name %} · 接诊医生：{{ my_doctor_name }}{% endif %}</p>
+  </div>
+</div>
+
+<div class="consult-steps">
+  <div class="cs-item"><span class="cs-num">1</span><div><strong>选择患者</strong><small>从下方就诊队列开始接诊</small></div></div>
+  <div class="cs-arrow">→</div>
+  <div class="cs-item"><span class="cs-num">2</span><div><strong>询问主观诉求</strong><small>主诉 / 现病史 / 体格检查</small></div></div>
+  <div class="cs-arrow">→</div>
+  <div class="cs-item"><span class="cs-num">3</span><div><strong>按需开具检验</strong><small>如需检验科检查则开单</small></div></div>
+  <div class="cs-arrow">→</div>
+  <div class="cs-item"><span class="cs-num">4</span><div><strong>开药 / 写病历</strong><small>开处方并完成就诊</small></div></div>
+</div>
+
+{# ============ 一、今日就诊队列 ============ #}
+<div class="panel">
+  <div class="page-head" style="margin-bottom:12px">
+    <div>
+      <h2 style="margin:0">今日就诊队列（{{ visit_queue|length }} 人）</h2>
+      <p class="hint" style="margin:4px 0 0">
+        「待就诊」的患者点击「开始接诊」后进入问诊流程；正在问诊的患者可点「继续接诊」。
+      </p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>排队号</th><th>挂号单号</th><th>患者</th><th>性别</th><th>科室</th>
+            <th>号别</th><th>接诊医生</th><th>状态</th><th>病历</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for q in visit_queue %}
+        <tr {% if current and current.registration_id == q.registration_id %}class="row-active"{% endif %}>
+          <td>{{ q.queue_no or '—' }}</td>
+          <td><code>{{ q.reg_no }}</code></td>
+          <td>{{ q.patient_name }}<span class="muted">（{{ q.patient_no }}）</span></td>
+          <td>{{ q.gender }}</td>
+          <td>{{ q.department_name }}</td>
+          <td><span class="badge">{{ q.reg_type }}</span></td>
+          <td>{{ q.doctor_name }}</td>
+          <td>
+            {% if q.visit_status == '就诊中' %}
+            <span class="badge badge-doing">就诊中</span>
+            {% else %}
+            <span class="badge">待就诊</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if q.record_id %}<span class="badge badge-done">已书写</span>
+            {% else %}<span class="muted">未书写</span>{% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              {% if q.visit_status == '待就诊' %}
+              <form class="inline-form" method="post">
+                <input type="hidden" name="action" value="start">
+                <input type="hidden" name="registration_id" value="{{ q.registration_id }}">
+                <button type="submit">开始接诊</button>
+              </form>
+              {% else %}
+              <a class="btn-link" href="{{ url_for('consultation', registration_id=q.registration_id) }}">继续接诊</a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10">今日暂无可接诊患者（队列只显示「待就诊 / 就诊中」的挂号）</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if not current %}
+<div class="panel empty-hint">
+  <p style="margin:0">请在上方队列中选择患者并点击「开始接诊」，即可进入引导式问诊流程。</p>
+</div>
+{% else %}
+
+{# ============ 二、患者信息 ============ #}
+<div class="panel patient-banner">
+  <div class="pb-main">
+    <div class="pb-name">
+      {{ current.patient_name }}
+      <span class="muted">{{ current.gender }} · {{ current.birth_date or '生日未填' }} · {{ current.blood_type or '血型未填' }}</span>
+    </div>
+    <div class="pb-sub">
+      病历号 <code>{{ current.patient_no }}</code>
+      · 挂号单 <code>{{ current.reg_no }}</code>
+      · {{ current.department_name or '未指定科室' }} · {{ current.doctor_name }} · {{ current.reg_type }}
+      {% if current.visit_status == '就诊中' %}<span class="badge badge-doing">就诊中</span>
+      {% else %}<span class="badge">{{ current.visit_status }}</span>{% endif %}
+    </div>
+    {% if current.medical_history %}
+    <div class="pb-history">档案既往病史：{{ current.medical_history }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ============ 三、步骤 1：主观诉求 + 病历 ============ #}
+<div class="form-card wide-form">
+  <h2><span class="step-tag">第 1 步</span> 询问主观诉求 · 书写病历</h2>
+  <p class="hint" style="margin-top:-6px">
+    主诉即患者本次就诊最主要的症状与持续时间；如需先做检验再下诊断，可先只填主诉与现病史，
+    保存后到第 2 步开检验，回来再补诊断。
+  </p>
+
+  <form method="post" id="mr-form">
+    <input type="hidden" name="action" value="save_record">
+    <input type="hidden" name="registration_id" value="{{ current.registration_id }}">
+    <input type="hidden" name="record_id" value="{{ current.record_id or 0 }}">
+
+    <div class="form-grid">
+      <div class="field">
+        <label>病历状态
+          <select name="record_status">
+            <option value="草稿" {% if not current.record_status or current.record_status == '草稿' %}selected{% endif %}>草稿（可继续修改，便于先开检验）</option>
+            <option value="已归档" {% if current.record_status == '已归档' %}selected{% endif %}>已归档（本次就诊定稿）</option>
+          </select>
+        </label>
+      </div>
+      <div class="field">
+        <label>诊断编码（ICD-10，选填）
+          <input name="diagnosis_code" maxlength="30" placeholder="如 J06.9" value="{{ current.diagnosis_code or '' }}">
+        </label>
+      </div>
+    </div>
+
+    <div class="form-grid" style="margin-top:14px">
+      <div class="field wide">
+        <label>主诉 <span class="req-mark">（主观诉求，必填）</span>
+          <textarea name="chief_complaint" rows="2" maxlength="500" style="width:100%;resize:vertical"
+                    placeholder="患者本次就诊最主要的症状与持续时间，如：发热咳嗽 3 天">{{ current.chief_complaint or '' }}</textarea>
+        </label>
+      </div>
+      <div class="field wide">
+        <label>现病史
+          <textarea name="present_illness" rows="3" style="width:100%;resize:vertical"
+                    placeholder="本次发病的起因、经过、演变及院外诊疗经过">{{ current.present_illness or '' }}</textarea>
+        </label>
+      </div>
+      <div class="field wide">
+        <label>既往史
+          <textarea name="past_history" rows="2" style="width:100%;resize:vertical"
+                    placeholder="既往疾病、手术、外伤、过敏及用药史">{{ current.past_history or '' }}</textarea>
+        </label>
+      </div>
+      <div class="field wide">
+        <label>体格检查
+          <textarea name="physical_exam" rows="3" style="width:100%;resize:vertical"
+                    placeholder="生命体征与阳性体征，如：T 38.2℃，咽部充血，双肺呼吸音粗">{{ current.physical_exam or '' }}</textarea>
+        </label>
+      </div>
+      <div class="field wide">
+        <label>诊断结果（主诊断）
+          <textarea name="diagnosis" rows="2" maxlength="500" style="width:100%;resize:vertical"
+                    placeholder="如：急性上呼吸道感染">{{ current.diagnosis or '' }}</textarea>
+        </label>
+      </div>
+      <div class="field wide">
+        <label>医嘱 / 处置意见
+          <textarea name="advice" rows="3" style="width:100%;resize:vertical"
+                    placeholder="用药建议、复诊安排、注意事项等">{{ current.advice or '' }}</textarea>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit">{{ '更新病历' if current.record_id else '保存病历' }}</button>
+      {% if current.record_id %}
+      <a class="btn-link" href="{{ url_for('medical_record_print', record_id=current.record_id) }}">查看 / 打印病历</a>
+      {% endif %}
+      <span class="hint">保存后会自动同步到患者档案的「最近一次诊断」。</span>
+    </div>
+  </form>
+</div>
+
+{# ============ 四、步骤 2：按需开具检验 ============ #}
+<div class="form-card wide-form">
+  <h2><span class="step-tag">第 2 步</span> 按需开具检验申请</h2>
+  <p class="hint" style="margin-top:-6px">
+    如果本次病情不需要检验科检查，<strong>直接跳过本步</strong>，去第 3 步开药并完成就诊即可。
+    勾选项目后开单，标本类型按项目类别自动判定（尿常规→尿液、粪便常规→粪便、其余→血液），
+    开单后需到「收费退费」缴费，检验科才会受理。
+  </p>
+
+  <form method="post" id="lab-form">
+    <input type="hidden" name="action" value="order_lab">
+    <input type="hidden" name="registration_id" value="{{ current.registration_id }}">
+
+    <div class="item-groups">
+      {% for cat in lab_items|groupby('item_category') %}
+      <div class="item-group">
+        <strong>{{ cat.grouper or '其他检验' }}</strong>
+        <div class="item-checkboxes">
+          {% for it in cat.list %}
+          <label class="chk">
+            <input type="checkbox" name="item_ids" value="{{ it.item_id }}">
+            {{ it.item_name }}<span class="muted">（{{ '%.2f'|format(it.price) }}元）</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">暂无可选检验项目</p>
+      {% endfor %}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit">开具检验申请</button>
+      <span class="hint">不勾选任何项目直接点会提示「请至少勾选一项检验项目」。</span>
+    </div>
+  </form>
+
+  {% if lab_of_reg %}
+  <div class="sub-title">本次就诊已开具的检验申请（{{ lab_of_reg|length }} 单）</div>
+  <div class="table-wrap small">
+    <table>
+      <thead><tr><th>检验单号</th><th>标本类型</th><th>状态</th><th>开单时间</th><th>异常项</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for t in lab_of_reg %}
+        <tr {% if t.abnormal_cnt %}class="row-abn"{% endif %}>
+          <td><code>{{ t.test_no }}</code></td>
+          <td>{{ t.sample_type }}</td>
+          <td><span class="badge">{{ t.test_status }}</span></td>
+          <td>{{ t.ordered_at }}</td>
+          <td>
+            {% if t.abnormal_cnt %}<span class="abn-badge">{{ t.abnormal_cnt }} 项异常</span>
+            {% elif t.test_status == '已完成' %}<span class="ok-badge">全部正常</span>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td><a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">查看结果</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# ============ 五、步骤 3：开药 + 完成就诊 ============ #}
+<div class="form-card wide-form">
+  <h2><span class="step-tag">第 3 步</span> 开具处方 · 完成就诊</h2>
+  <p class="hint" style="margin-top:-6px">
+    处方提交后状态为「待收费」，患者需到收费窗口缴费后由药房发药。
+    若本次无需开药（如仅复查），可直接点击页面底部的「完成就诊」。
+  </p>
+
+  <form method="post" id="pres-form">
+    <input type="hidden" name="action" value="issue_drug">
+    <input type="hidden" name="registration_id" value="{{ current.registration_id }}">
+
+    <div class="table-wrap" style="margin-bottom:14px">
+      <table id="items-table">
+        <thead>
+          <tr><th style="width:42%">药品</th><th>数量</th><th>单价（元）</th><th>用法用量</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr class="item-row">
+            <td>
+              <select name="medicine_id[]" class="medicine-select">
+                <option value="">-- 选择药品 --</option>
+                {% for m in medicines %}
+                <option value="{{ m.medicine_id }}" data-price="{{ m.unit_price }}">{{ m.medicine_name }}（{{ m.specification or '规格未填' }}，库存{{ m.stock_quantity }}）</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input name="quantity[]" type="number" class="qty" value="1" min="1"></td>
+            <td class="price">-</td>
+            <td><input name="dosage[]" placeholder="如 每日3次，每次1粒"></td>
+            <td><button type="button" class="danger-btn" onclick="removeRow(this)">移除</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="actions">
+      <button type="button" class="secondary-btn" onclick="addRow()">+ 添加药品</button>
+      <button type="submit">提交处方（待收费）</button>
+    </div>
+  </form>
+</div>
+
+{# ============ 六、完成就诊 ============ #}
+<div class="panel finish-panel">
+  <div>
+    <h2 style="margin:0 0 6px">就诊完成</h2>
+    <p class="hint" style="margin:0">
+      {% if not current.record_id %}
+      尚未书写病历，<strong>需先在第 1 步保存病历</strong>才能完成就诊。
+      {% elif current.record_status != '已归档' %}
+      病历当前为「草稿」。若已定稿，建议在第 1 步改为「已归档」后再完成就诊。
+      {% else %}
+      病历已归档，可完成本次就诊。
+      {% endif %}
+    </p>
+  </div>
+  <form method="post" class="inline-form">
+    <input type="hidden" name="action" value="finish">
+    <input type="hidden" name="registration_id" value="{{ current.registration_id }}">
+    <button type="submit" {% if not current.record_id %}disabled title="请先保存病历"{% endif %} style="padding:12px 22px">
+      完成就诊
+    </button>
+  </form>
+</div>
+{% endif %}
+
+<script>
+function addRow() {
+  const tbody = document.querySelector('#items-table tbody');
+  const first = tbody.querySelector('.item-row');
+  const clone = first.cloneNode(true);
+  clone.querySelector('.qty').value = 1;
+  clone.querySelectorAll('input').forEach(i => i.value = '');
+  clone.querySelector('.medicine-select').value = '';
+  clone.querySelector('.price').textContent = '-';
+  tbody.appendChild(clone);
+  bindChange(clone);
+}
+function removeRow(btn) {
+  const tbody = document.querySelector('#items-table tbody');
+  if (tbody.querySelectorAll('.item-row').length > 1) {
+    btn.closest('.item-row').remove();
+  } else {
+    alert('至少保留一行药品明细');
+  }
+}
+function bindChange(row) {
+  const sel = row.querySelector('.medicine-select');
+  const qty = row.querySelector('.qty');
+  const price = row.querySelector('.price');
+  const calc = () => {
+    const opt = sel.options[sel.selectedIndex];
+    const p = opt && opt.dataset.price ? parseFloat(opt.dataset.price) : 0;
+    const q = parseInt(qty.value) || 0;
+    price.textContent = (p * q).toFixed(2);
+  };
+  sel.addEventListener('change', calc);
+  qty.addEventListener('input', calc);
+}
+document.querySelectorAll('.item-row').forEach(bindChange);
+
+// 「提交处方」前校验：至少选了一种药品，避免把空表单发给后端
+document.getElementById('pres-form').addEventListener('submit', function (e) {
+  const picked = Array.from(document.querySelectorAll('.medicine-select')).some(s => s.value);
+  if (!picked) {
+    e.preventDefault();
+    alert('请先选择至少一种药品；若本次无需开药，请直接点击「完成就诊」。');
+  }
+});
+</script>
+{% endblock %}

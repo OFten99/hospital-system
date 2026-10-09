@@ -130,7 +130,7 @@ git add . && git commit -m "更新" && git push
 | Web 路由 | 28 个端点（29 条 `@app.route` 装饰器：`/consultation` 与 `/consultation/<id>` 共用一个视图）；**20 个端点含 POST**，其中 `/login` 只读表单，故 19 个是数据写入路由 |
 | 页面模板 | 25 |
 | 黑盒测试用例 | 50 |
-| `web_app/app.py` | 3458 行 / 约 159 KB |
+| `web_app/app.py` | 3462 行 / 约 163 KB |
 | `web_app/db.py` | 340 行（连接池 + 查询封装 + 事务化写入 + OUT 参数调用） |
 
 ## 数据库设计要点

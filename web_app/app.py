@@ -3086,11 +3086,10 @@ def lab_results(test_id):
             try:
                 for item in items:
                     result_value = request.form.get(f"result_{item['result_id']}", "").strip()
+                    # 结果标志不再由人工选择，一律按参考范围自动判定；
+                    # 无参考范围（或空值）无法判定时默认「正常」。
                     auto = auto_flag(item["reference_range"], result_value)
-                    if auto is not None:
-                        result_flag = auto
-                    else:
-                        result_flag = request.form.get(f"flag_{item['result_id']}", "正常")
+                    result_flag = auto if auto is not None else "正常"
                     result_note = request.form.get(f"note_{item['result_id']}", "").strip()
                     call_proc(
                         "sp_record_lab_result",

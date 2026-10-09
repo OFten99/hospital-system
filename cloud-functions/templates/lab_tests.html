@@ -157,7 +157,11 @@
           <td class="ops">
             <a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">查看结果</a>
             {% if t.test_status in ('待检验', '检验中') and current_user.role_code in ('LAB_TECH', 'ADMIN') %}
-            <a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">录入结果</a>
+              {% if t.pay_status == '已收费' %}
+              <a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">录入结果</a>
+              {% else %}
+              <span class="badge warn">待收费</span>
+              {% endif %}
             <form method="post" class="inline-form" onsubmit="return confirm('确定作废该检验单？')">
               <input type="hidden" name="action" value="cancel_test">
               <input type="hidden" name="test_id" value="{{ t.test_id }}">

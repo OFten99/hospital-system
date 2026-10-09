@@ -260,6 +260,16 @@ tr:hover td { background: #fafafa; }
 }
 .hint-box p { margin: 6px 0 0; }
 
+.panel-notice {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #f0c9a0;
+  background: #fdf3e7;
+  color: #9a5b1f;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
 @media (max-width: 900px) {
   .sidebar {
     position: static;

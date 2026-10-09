@@ -2,8 +2,7 @@
 -- 迁移脚本：users.phone 由 NOT NULL 改为可空
 -- ============================================================
 -- 背景：
---   自助挂号机（REGMACHINE 角色）是部署在门诊大厅的终端设备，
---   本身没有联系电话，注册该角色账号时手机号留空是正常需求。
+--   岗位账号注册时手机号留空是正常需求（例如后台批量建号、运维账号等），
 --   原设计 users.phone 为 VARCHAR(20) NOT NULL UNIQUE，
 --   留空会触发 MySQL 1048 (23000) Column 'phone' cannot be null。
 --
@@ -19,7 +18,7 @@
 USE hospital_outpatient;
 
 ALTER TABLE users
-  MODIFY COLUMN phone VARCHAR(20) NULL COMMENT '联系电话（自助终端等岗位可留空）';
+  MODIFY COLUMN phone VARCHAR(20) NULL COMMENT '联系电话（可选择留空）';
 
 -- 校验
 SELECT

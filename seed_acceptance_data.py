@@ -48,7 +48,8 @@ ACCEPT_MR_PREFIX = "ACCMR"          # 病历号前缀
 # 固定日期用「最近一个可用的历史工作日」，避免与真实数据（今日）冲突
 BASE_DATE = date(2026, 9, 28)       # 住院历史日期，用于其他患者的补齐数据
 
-OPERATOR = dict(admin=1, registrar=2, cashier=3, lab=12, pharm=15)
+# 操作人（对应 users.user_id）。挂号/建档已并入收费窗口，故 window=3（cash01）。
+OPERATOR = dict(admin=1, window=3, cashier=3, lab=12, pharm=15)
 
 
 def connect():
@@ -363,21 +364,24 @@ def build():
     cur.execute("SELECT patient_no FROM patients WHERE patient_id=%s", (pid,))
     print("验收患者：patient_id=%s patient_no=%s" % (pid, cur.fetchone()[0]))
 
-    d1 = 1   # 张建国 内科
+    d1 = 1   # 张建国 内科（doctor_id）
     dept1 = 1
+    # 体征 operator_id 需要的是 users.user_id，由 doctor_id 换算而来
+    cur.execute("SELECT user_id FROM doctors WHERE doctor_id=%s", (d1,))
+    d1_user = cur.fetchone()[0]
     meds_a = [(1, 2, "口服，一次 0.5g，一日 3 次"), (6, 1, "口服，一次 3g，一日 3 次")]
     meds_b = [(2, 1, "口服，一次 0.3g，一日 2 次"), (5, 1, "口服，一次 20mg，一日 1 次")]
 
     # ===== A. 完整链路：已就诊 → 病历 → 处方 → 检验 → 收费 → 发药 → 结果 =====
     ra = make_registration(cur, ACCEPT_REG_PREFIX + "A01", pid, d1, dept1, BASE_DATE,
-                           "普通号", 50.00, 1, "已就诊", OPERATOR["registrar"])
+                           "普通号", 50.00, 1, "已就诊", OPERATOR["window"])
     # 体征
     cur.execute("""
         INSERT INTO vital_signs (patient_id, registration_id, operator_id, temperature,
                                  systolic_pressure, diastolic_pressure, heart_rate,
                                  respiration_rate, weight, height, note)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    """, (pid, ra, d1, 37.6, 128, 82, 88, 19, 70.5, 175.0, "发热待查，咽部充血"))
+    """, (pid, ra, d1_user, 37.6, 128, 82, 88, 19, 70.5, 175.0, "发热待查，咽部充血"))
     # 病历
     save_medical_record(cur, dict(registration_id=ra, patient_id=pid, doctor_id=d1,
                                   department_id=dept1, visit_date=BASE_DATE),
@@ -403,13 +407,13 @@ def build():
     # ===== B. 就诊中：已有病历草稿 + 待收费处方 + 待检验 =====
     rb = make_registration(cur, ACCEPT_REG_PREFIX + "B01", pid, d1, dept1,
                            BASE_DATE + timedelta(days=1),
-                           "专家号", 50.00, 2, "就诊中", OPERATOR["registrar"])
+                           "专家号", 50.00, 2, "就诊中", OPERATOR["window"])
     cur.execute("""
         INSERT INTO vital_signs (patient_id, registration_id, operator_id, temperature,
                                  systolic_pressure, diastolic_pressure, heart_rate,
                                  respiration_rate, weight, height, note)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    """, (pid, rb, d1, 36.8, 122, 78, 76, 18, 70.0, 175.0, "复诊，一般情况可"))
+    """, (pid, rb, d1_user, 36.8, 122, 78, 76, 18, 70.0, 175.0, "复诊，一般情况可"))
     save_medical_record(cur, dict(registration_id=rb, patient_id=pid, doctor_id=d1,
                                   department_id=dept1, visit_date=BASE_DATE + timedelta(days=1)),
                         "复诊：咽痛缓解。",
@@ -424,12 +428,12 @@ def build():
     # ===== C. 待就诊：体检开单 =====
     rc = make_registration(cur, ACCEPT_REG_PREFIX + "C01", pid, d1, dept1,
                            BASE_DATE + timedelta(days=2),
-                           "普通号", 50.00, 3, "待就诊", OPERATOR["registrar"])
+                           "普通号", 50.00, 3, "待就诊", OPERATOR["window"])
 
     # ===== D. 已退号：退号退款留痕 =====
     rd = make_registration(cur, ACCEPT_REG_PREFIX + "D01", pid, d1, dept1,
                            BASE_DATE + timedelta(days=3),
-                           "普通号", 50.00, 4, "已退号", OPERATOR["registrar"])
+                           "普通号", 50.00, 4, "已退号", OPERATOR["window"])
     pno_d = add_payment(cur, pid, rd, None, None, "挂号费", 50.00, "现金", "已退费",
                         OPERATOR["cashier"],
                         pay_time=datetime.combine(BASE_DATE + timedelta(days=3), datetime.min.time()))
@@ -450,13 +454,17 @@ def build():
         rdate = BASE_DATE - timedelta(days=i + 1)
         reg_no = ACCEPT_REG_PREFIX + "X%02d" % (i + 1)
         rid = make_registration(cur, reg_no, p_id, doc_id, dept, rdate,
-                                rtype, fee, i + 1, "已就诊", OPERATOR["registrar"])
+                                rtype, fee, i + 1, "已就诊", OPERATOR["window"])
+        # 体征的 operator_id 必须是 users.user_id，而 doc_id 是 doctors.doctor_id，
+        # 两者不是一回事（docs/doctors 表通过 user_id 关联）。这里显式换算。
+        cur.execute("SELECT user_id FROM doctors WHERE doctor_id=%s", (doc_id,))
+        doc_user_id = cur.fetchone()[0]
         cur.execute("""
             INSERT INTO vital_signs (patient_id, registration_id, operator_id, temperature,
                                      systolic_pressure, diastolic_pressure, heart_rate,
                                      respiration_rate, note)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (p_id, rid, doc_id, 36.5 + (i % 3) * 0.3, 118 + i * 2, 76 + i, 72 + i * 2,
+        """, (p_id, rid, doc_user_id, 36.5 + (i % 3) * 0.3, 118 + i * 2, 76 + i, 72 + i * 2,
               18, "门诊常规体征"))
         save_medical_record(cur, dict(registration_id=rid, patient_id=p_id, doctor_id=doc_id,
                                       department_id=dept, visit_date=rdate),

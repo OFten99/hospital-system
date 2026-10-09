@@ -266,7 +266,7 @@ BEGIN
   COMMIT;
 END$$
 
--- 3. 录入检验结果（检验技师），自动流转状态
+-- 3. 录入检验结果（检验科人员），自动流转状态
 CREATE PROCEDURE sp_record_lab_result(
   IN p_test_id INT,
   IN p_result_id INT,
@@ -431,7 +431,7 @@ INSERT INTO lab_items (item_code, item_name, item_category, unit, reference_rang
 ('CA',  '钙', '电解质', 'mmol/L', '2.1-2.6', 25.00, '启用');
 
 
--- 2. 检验科科室与检验技师账号（幂等）
+-- 2. 检验科科室与检验科人员账号（幂等）
 DELETE FROM departments WHERE department_code = 'JYK';
 INSERT INTO departments (department_code, department_name, description)
 VALUES ('JYK', '检验科', '临床检验、化验与结果报告');
@@ -439,7 +439,7 @@ SET @jyc_id = LAST_INSERT_ID();
 
 DELETE FROM roles WHERE role_code = 'LAB_TECH';
 INSERT INTO roles (role_code, role_name, description)
-VALUES ('LAB_TECH', '检验技师', '检验申请处理、检验结果录入与汇总');
+VALUES ('LAB_TECH', '检验科人员', '检验申请处理、检验结果录入与汇总');
 SET @lab_role_id = LAST_INSERT_ID();
 
 DELETE FROM users WHERE username = 'lab01';

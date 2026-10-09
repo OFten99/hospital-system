@@ -4,13 +4,11 @@
 
 USE hospital_outpatient;
 
--- 一、角色
+-- 一、角色（五类用户：系统超级用户 / 收费人员 / 医生 / 检验科人员 / 药房人员）
 INSERT INTO roles (role_code, role_name, description) VALUES
-('ADMIN', '管理员', '系统管理与全部业务权限'),
+('ADMIN', '系统超级用户', '系统管理与全部业务权限'),
 ('DOCTOR', '医生', '查看挂号、开具处方、管理患者'),
-('REGISTRAR', '挂号员', '患者建档、挂号、退号'),
-('REGMACHINE', '挂号机', '自助挂号机终端：患者建档、挂号、退号'),
-('CASHIER', '收费员', '处方收费、退费、报表');
+('CASHIER', '收费人员', '患者建档、挂号退号、处方收费退费、报表');
 
 -- 二、科室
 INSERT INTO departments (department_code, department_name, description) VALUES
@@ -24,11 +22,9 @@ INSERT INTO departments (department_code, department_name, description) VALUES
 ('KQK', '口腔科', '口腔常见病诊治');
 
 -- 三、系统用户与医生
--- 管理员、挂号员、挂号机、收费员
+-- 系统超级用户、收费人员（挂号/建档已并入收费窗口，不再单设挂号员/挂号机角色）
 CALL sp_add_user('A0001', '系统管理员', '男', NULL, 1, '13700000001', 'admin01', SHA2('123456', 256));
-CALL sp_add_user('R0001', '挂号员小王', '女', NULL, 3, '13700000002', 'reg01', SHA2('123456', 256));
-CALL sp_add_user('R0003', '自助挂号机', '男', NULL, (SELECT role_id FROM roles WHERE role_code = 'REGMACHINE'), '13700000004', 'regm01', SHA2('123456', 256));
-CALL sp_add_user('C0001', '收费员小李', '女', NULL, 4, '13700000003', 'cash01', SHA2('123456', 256));
+CALL sp_add_user('C0001', '收费员小李', '女', NULL, (SELECT role_id FROM roles WHERE role_code = 'CASHIER'), '13700000003', 'cash01', SHA2('123456', 256));
 
 -- 医生（sp_add_doctor 内部自动关联 DOCTOR 角色）
 CALL sp_add_doctor('D001', '张建国', '男', 1, '13700000011', 'doctor01', SHA2('123456', 256), '主任医师', '心血管内科', 50.00, 30);
@@ -103,19 +99,19 @@ INSERT INTO doctor_schedules (doctor_id, work_date, shift_type, clinic_room, max
 (@d5, DATE_ADD(CURDATE(), INTERVAL 1 DAY), '上午', '儿科1诊室', 35),
 (@d7, DATE_ADD(CURDATE(), INTERVAL 2 DAY), '上午', '骨科1诊室', 35);
 
--- 七、挂号业务演示（挂号员 reg01 用户ID=2，挂号费随挂号即时收取）
-CALL sp_register('REG202609140001', 1, @d2, @s2, '普通号', 2, '微信');
-CALL sp_register('REG202609140002', 2, @d1, @s1, '专家号', 2, '医保');
-CALL sp_register('REG202609140003', 3, @d3, @s3, '专家号', 2, '支付宝');
-CALL sp_register('REG202609140004', 4, @d4, @s4, '普通号', 2, '现金');
-CALL sp_register('REG202609140005', 5, @d5, @s5, '普通号', 2, '微信');
-CALL sp_register('REG202609140006', 6, @d7, @s7, '普通号', 2, '微信');
-CALL sp_register('REG202609140007', 7, @d6, @s6, '专家号', 2, '医保');
+-- 七、挂号业务演示（收费窗口操作员 cash01 用户ID=3，挂号费随挂号即时收取）
+CALL sp_register('REG202609140001', 1, @d2, @s2, '普通号', 3, '微信');
+CALL sp_register('REG202609140002', 2, @d1, @s1, '专家号', 3, '医保');
+CALL sp_register('REG202609140003', 3, @d3, @s3, '专家号', 3, '支付宝');
+CALL sp_register('REG202609140004', 4, @d4, @s4, '普通号', 3, '现金');
+CALL sp_register('REG202609140005', 5, @d5, @s5, '普通号', 3, '微信');
+CALL sp_register('REG202609140006', 6, @d7, @s7, '普通号', 3, '微信');
+CALL sp_register('REG202609140007', 7, @d6, @s6, '专家号', 3, '医保');
 
 -- 八、退号演示：刘洋（挂号记录6）退号，恢复骨科号源并退回挂号费
-CALL sp_cancel_registration(6, 2, '临时有事，改日再诊');
+CALL sp_cancel_registration(6, 3, '临时有事，改日再诊');
 
--- 九、开具处方与收费退费演示（医生开方 -> 收费员收费/退费）
+-- 九、开具处方与收费退费演示（医生开方 -> 收费人员收费/退费）
 -- 处方1：王小明（挂号1，李慧医生），收费后已收费
 CALL sp_issue_prescription(
   'PRES202609140001', 1, @d2, 1,

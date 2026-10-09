@@ -13,7 +13,7 @@ DROP PROCEDURE IF EXISTS sp_refund;
 
 DELIMITER $$
 
--- 1. 新增系统用户（挂号员/收费员/管理员等非医生角色）
+-- 1. 新增系统用户（收费人员/检验科人员/药房人员/超级用户等非医生角色）
 CREATE PROCEDURE sp_add_user(
   IN p_user_no VARCHAR(30),
   IN p_user_name VARCHAR(50),

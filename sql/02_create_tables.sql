@@ -24,7 +24,7 @@ CREATE TABLE roles (
   description VARCHAR(200) NULL COMMENT '角色说明'
 ) COMMENT='系统角色表';
 
--- 2. 系统用户表（含登录账号，医生/挂号员/收费员/管理员统一管理）
+-- 2. 系统用户表（含登录账号，医生/收费人员/检验科人员/药房人员/超级用户统一管理）
 CREATE TABLE users (
   user_id INT PRIMARY KEY AUTO_INCREMENT COMMENT '用户编号',
   user_no VARCHAR(30) NOT NULL UNIQUE COMMENT '工号',
@@ -113,7 +113,7 @@ CREATE TABLE registrations (
   reg_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '挂号费',
   queue_no INT NOT NULL COMMENT '排队号',
   visit_status ENUM('待就诊','就诊中','已就诊','已退号') NOT NULL DEFAULT '待就诊' COMMENT '就诊状态',
-  operator_id INT NOT NULL COMMENT '挂号员',
+  operator_id INT NOT NULL COMMENT '挂号操作员',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '挂号时间',
   CONSTRAINT fk_reg_patient FOREIGN KEY (patient_id) REFERENCES patients(patient_id),
   CONSTRAINT fk_reg_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(doctor_id),
@@ -183,7 +183,7 @@ CREATE TABLE payments (
   pay_amount DECIMAL(10,2) NOT NULL COMMENT '收费金额',
   pay_method ENUM('现金','微信','支付宝','医保') NOT NULL DEFAULT '微信' COMMENT '支付方式',
   pay_status ENUM('已收费','已退费') NOT NULL DEFAULT '已收费' COMMENT '收费状态',
-  operator_id INT NOT NULL COMMENT '收费员',
+  operator_id INT NOT NULL COMMENT '收费操作员',
   pay_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '收费时间',
   refund_time DATETIME NULL COMMENT '退费时间',
   refund_operator_id INT NULL COMMENT '退费操作员',

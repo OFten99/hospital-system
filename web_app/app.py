@@ -271,16 +271,18 @@ PERMISSIONS = {
     # 自动隐藏；若直接敲 /appointments 会被 permission_required 挡回首页。
     "REGISTRAR": {"dashboard", "patients", "registrations", "schedules"},
     "REGMACHINE": {"kiosk"},
-    # 医生：排班 + 门诊病历（病历页内可顺带开检验）+ 处方 + 检验科 + 体征
+    # 医生：接诊工作台 + 排班 + 门诊病历 + 处方 + 检验科 + 体征
     # 说明：这里必须与 base.html 里 DOCTOR 分支写死的菜单项一一对应，
     # 否则会出现「路由能进、菜单没入口」或反过来的情况。
-    "DOCTOR": {"dashboard", "schedules", "prescriptions", "medical_records", "lab", "vitals"},
+    # consultation = 医生接诊工作台（就诊队列 → 开始接诊 → 问诊写病历 → 按需检验 → 开药）
+    "DOCTOR": {"consultation", "dashboard", "schedules", "prescriptions",
+               "medical_records", "lab", "vitals"},
     "CASHIER": {"dashboard", "payments"},
     "LAB_TECH": {"dashboard", "lab"},
     "PHARMACIST": {"dashboard", "dispense", "medicines"},
     "ADMIN": {"dashboard", "patients", "registrations", "schedules", "prescriptions",
               "payments", "medicines", "reports", "export", "codes", "vitals", "lab",
-              "diagnosis", "medical_records", "dispense", "users"},
+              "diagnosis", "medical_records", "dispense", "users", "consultation"},
 }
 
 
@@ -1609,6 +1611,323 @@ def prescriptions():
 
 
 # ============================================================
+# 医生接诊工作台（就诊队列 → 开始接诊 → 问诊/写病历 → 按需检验 → 开药/完成）
+# ============================================================
+
+def _my_doctor_profile():
+    """取当前登录医生本人的 doctor_id 与科室（非医生返回 (None, None)）。"""
+    user = current_user()
+    if not user or user["role_code"] != "DOCTOR":
+        return None, None
+    row = fetch_one(
+        """
+        SELECT doc.doctor_id, u.department_id
+        FROM doctors doc JOIN users u ON doc.user_id = u.user_id
+        WHERE doc.user_id = %s
+        """,
+        (user["user_id"],),
+    )
+    if not row:
+        return None, None
+    return row["doctor_id"], row["department_id"]
+
+
+def _consultation_reg(registration_id, my_doctor_id):
+    """取一条接诊上下文（仅限本人名下的挂号），供工作台使用。
+
+    ⚠️ 一定要把 ``r.doctor_id`` 和「解析后的科室」一起选出来：
+    接诊工作台的第 2/3 步（开检验、开处方）要往存储过程里传 doctor_id /
+    department_id。少了这两列，后面 ``reg["doctor_id"]`` 会抛 KeyError，
+    被第三层 ``except (KeyError, ...)`` 接住，报成「必填参数不能为空」，
+    排查时极易误判成表单缺字段。
+    """
+    if not registration_id:
+        return None
+    row = fetch_one(
+        """
+        SELECT r.registration_id, r.reg_no, r.reg_date, r.reg_type, r.visit_status,
+               r.department_id, r.patient_id, r.doctor_id,
+               COALESCE(r.department_id, u.department_id) AS resolved_department_id,
+               p.patient_no, p.patient_name, p.gender, p.birth_date, p.blood_type,
+               p.medical_history, p.phone,
+               u.user_name AS doctor_name, dept.department_name,
+               mr.record_id, mr.record_no, mr.record_status, mr.chief_complaint,
+               mr.present_illness, mr.past_history, mr.physical_exam,
+               mr.diagnosis, mr.diagnosis_code, mr.advice
+        FROM registrations r
+        JOIN patients p ON r.patient_id = p.patient_id
+        JOIN doctors d ON r.doctor_id = d.doctor_id
+        JOIN users u ON d.user_id = u.user_id
+        LEFT JOIN departments dept ON COALESCE(r.department_id, u.department_id) = dept.department_id
+        LEFT JOIN medical_records mr ON mr.registration_id = r.registration_id
+        WHERE r.registration_id = %s AND r.doctor_id = %s
+        """,
+        (registration_id, my_doctor_id),
+    )
+    return row
+
+
+@app.route("/consultation", methods=["GET", "POST"])
+@app.route("/consultation/<int:registration_id>", methods=["GET", "POST"])
+@login_required
+@permission_required("consultation")
+def consultation(registration_id=None):
+    """医生接诊工作台。
+
+    流程：今日就诊队列 → 开始接诊（状态转「就诊中」）→ 引导式工作区：
+      第 1 步  询问主观诉求 / 书写病历（含诊断、医嘱）
+      第 2 步  按需开具检验申请（不检验可跳过）
+      第 3 步  开具处方（开药）→ 完成就诊（状态转「已就诊」）
+
+    * 医生：只看/只操作自己名下的挂号。
+    * 管理员：可查看队列与工作区（诊断/病历/处方仍受各自路由的既有权限约束）。
+    """
+    user = current_user()
+    is_doctor = user["role_code"] == "DOCTOR"
+    is_admin = user["role_code"] == "ADMIN"
+
+    if is_doctor:
+        my_doctor_id, my_dept_id = _my_doctor_profile()
+        if not my_doctor_id:
+            flash("当前账号未关联医生档案，无法使用接诊工作台。", "error")
+            return redirect(url_for("dashboard"))
+    else:
+        # 管理员（或其它被授权的角色）用 query 指定医生；不指定则看全科室队列
+        my_doctor_id = int(request.values.get("doctor_id") or 0) or None
+        my_dept_id = None
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        try:
+            if action == "start":
+                rid = int(request.form["registration_id"])
+                reg = _consultation_reg(rid, my_doctor_id) if is_doctor else fetch_one(
+                    "SELECT registration_id, visit_status FROM registrations WHERE registration_id = %s", (rid,))
+                if not reg:
+                    flash("只能接诊自己名下的挂号记录。", "error")
+                    return redirect(url_for("consultation"))
+                if reg["visit_status"] != "待就诊":
+                    flash("该患者当前状态为「%s」，无法开始接诊。" % reg["visit_status"], "error")
+                    return redirect(url_for("consultation"))
+                execute(
+                    "UPDATE registrations SET visit_status = '就诊中' "
+                    "WHERE registration_id = %s AND visit_status = '待就诊'",
+                    (rid,),
+                )
+                flash("已开始接诊，请先询问患者主观诉求并书写病历。", "success")
+                return redirect(url_for("consultation", registration_id=rid))
+
+            if action == "finish":
+                rid = int(request.form["registration_id"])
+                reg = _consultation_reg(rid, my_doctor_id) if is_doctor else fetch_one(
+                    "SELECT registration_id, visit_status FROM registrations WHERE registration_id = %s", (rid,))
+                if not reg:
+                    flash("只能完成自己名下的挂号记录。", "error")
+                    return redirect(url_for("consultation"))
+                if reg["visit_status"] != "就诊中":
+                    flash("该患者当前状态为「%s」，无法完成就诊。" % reg["visit_status"], "error")
+                    return redirect(url_for("consultation"))
+                # 完成就诊前必须已书写病历，保证医疗文书完整
+                if not reg["record_id"]:
+                    flash("请先书写并保存病历，再完成就诊。", "error")
+                    return redirect(url_for("consultation", registration_id=rid))
+                execute(
+                    "UPDATE registrations SET visit_status = '已就诊' "
+                    "WHERE registration_id = %s AND visit_status = '就诊中'",
+                    (rid,),
+                )
+                flash("已完成就诊，患者状态更新为已就诊。", "success")
+                return redirect(url_for("consultation"))
+
+            # ---------------------------------------------------------------
+            # 工作台内的三步操作复用既有的三条业务链路（不新增数据库对象）：
+            #   save_record → sp_save_medical_record（同「门诊病历」页）
+            #   order_lab   → sp_add_lab_test        （同「检验科」页）
+            #   issue_drug  → sp_issue_prescription  （同「处方开具」页）
+            # 每条都先按 registration_id 做归属校验，医生只能操作本人名下的挂号。
+            # ---------------------------------------------------------------
+            if action in ("save_record", "order_lab", "issue_drug"):
+                rid = int(request.form["registration_id"])
+                reg = _consultation_reg(rid, my_doctor_id) if is_doctor else fetch_one(
+                    """
+                    SELECT r.registration_id, r.visit_status, r.patient_id, r.doctor_id,
+                           COALESCE(r.department_id, u.department_id) AS resolved_department_id
+                    FROM registrations r
+                    JOIN doctors d ON r.doctor_id = d.doctor_id
+                    JOIN users u ON d.user_id = u.user_id
+                    WHERE r.registration_id = %s
+                    """,
+                    (rid,),
+                )
+                if not reg:
+                    flash("只能操作自己名下的挂号记录。", "error")
+                    return redirect(url_for("consultation"))
+                # 已完成/已退号的挂号不再允许补写病历或补开单
+                if reg["visit_status"] not in ("待就诊", "就诊中"):
+                    flash(
+                        "该挂号当前状态为「%s」，不能再书写病历或开具单据。"
+                        % reg["visit_status"], "error",
+                    )
+                    return redirect(url_for("consultation", registration_id=rid))
+
+                if action == "save_record":
+                    call_proc_scalar(
+                        "sp_save_medical_record",
+                        [
+                            int(request.form.get("record_id") or 0),
+                            rid,
+                            request.form.get("chief_complaint") or None,
+                            request.form.get("present_illness") or None,
+                            request.form.get("past_history") or None,
+                            request.form.get("physical_exam") or None,
+                            request.form.get("diagnosis") or None,
+                            request.form.get("diagnosis_code") or None,
+                            request.form.get("advice") or None,
+                            request.form.get("record_status") or "草稿",
+                        ],
+                        # OUT 参数在签名里的序号（1 起算）= IN 个数 + 1 = 11
+                        out_index=11,
+                    )
+                    flash("病历已保存。", "success")
+
+                elif action == "order_lab":
+                    item_ids = request.form.getlist("item_ids")
+                    if not item_ids:
+                        flash("请至少勾选一项检验项目。", "error")
+                        return redirect(url_for("consultation", registration_id=rid))
+                    if reg["resolved_department_id"] is None:
+                        flash("无法确定本次就诊的科室，检验申请未开具，请先补全科室。", "error")
+                        return redirect(url_for("consultation", registration_id=rid))
+                    call_proc(
+                        "sp_add_lab_test",
+                        [
+                            make_no("LAB"),
+                            reg["patient_id"],
+                            reg["doctor_id"],
+                            reg["resolved_department_id"],
+                            rid,
+                            derive_sample_type(item_ids),
+                            ",".join(item_ids),
+                            int(user["user_id"]),
+                        ],
+                    )
+                    flash("已开具 %d 项检验申请，请提醒患者先到收费窗口缴费。" % len(item_ids), "success")
+
+                else:  # issue_drug
+                    medicine_ids = request.form.getlist("medicine_id[]")
+                    quantities = request.form.getlist("quantity[]")
+                    dosages = request.form.getlist("dosage[]")
+                    items = []
+                    for mid, qty, dosage in zip(medicine_ids, quantities, dosages):
+                        if not mid.strip():
+                            continue
+                        items.append({
+                            "medicine_id": int(mid),
+                            "quantity": int(qty or 1),
+                            "dosage": (dosage or "").strip(),
+                        })
+                    if not items:
+                        flash("请至少添加一种药品。", "error")
+                        return redirect(url_for("consultation", registration_id=rid))
+                    call_proc(
+                        "sp_issue_prescription",
+                        [
+                            make_no("PRES"),
+                            reg["patient_id"],
+                            reg["doctor_id"],
+                            rid,
+                            json.dumps(items, ensure_ascii=False),
+                        ],
+                    )
+                    flash("处方开具成功，状态为待收费。", "success")
+
+                return redirect(url_for("consultation", registration_id=rid))
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
+        except mysql.connector.Error as error:
+            flash(handle_db_error(error), "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error), "error")
+        return redirect(url_for("consultation"))
+
+    # ---- 今日就诊队列（本人名下）----
+    queue_sql = """
+        SELECT r.registration_id, r.reg_no, r.reg_type, r.queue_no, r.visit_status,
+               p.patient_id, p.patient_no, p.patient_name, p.gender,
+               dept.department_name, u.user_name AS doctor_name,
+               mr.record_id, mr.record_status
+        FROM registrations r
+        JOIN patients p ON r.patient_id = p.patient_id
+        JOIN doctors d ON r.doctor_id = d.doctor_id
+        JOIN users u ON d.user_id = u.user_id
+        LEFT JOIN departments dept ON COALESCE(r.department_id, u.department_id) = dept.department_id
+        LEFT JOIN medical_records mr ON mr.registration_id = r.registration_id
+        WHERE r.reg_date = CURDATE() AND r.visit_status IN ('待就诊', '就诊中')
+    """
+    if is_doctor:
+        visit_queue = fetch_all(queue_sql + " AND r.doctor_id = %s ORDER BY r.queue_no", (my_doctor_id,))
+    else:
+        visit_queue = fetch_all(queue_sql + " ORDER BY r.queue_no")
+
+    # ---- 当前接诊上下文 ----
+    current = None
+    lab_of_reg = []
+    lab_items = []
+    medicines = []
+    if registration_id:
+        current = _consultation_reg(registration_id, my_doctor_id) if is_doctor else fetch_one(
+            """
+            SELECT r.registration_id, r.reg_no, r.reg_date, r.reg_type, r.visit_status,
+                   r.department_id, r.patient_id,
+                   p.patient_no, p.patient_name, p.gender, p.birth_date, p.blood_type,
+                   p.medical_history, p.phone,
+                   u.user_name AS doctor_name, dept.department_name,
+                   mr.record_id, mr.record_no, mr.record_status, mr.chief_complaint,
+                   mr.present_illness, mr.past_history, mr.physical_exam,
+                   mr.diagnosis, mr.diagnosis_code, mr.advice
+            FROM registrations r
+            JOIN patients p ON r.patient_id = p.patient_id
+            JOIN doctors d ON r.doctor_id = d.doctor_id
+            JOIN users u ON d.user_id = u.user_id
+            LEFT JOIN departments dept ON COALESCE(r.department_id, u.department_id) = dept.department_id
+            LEFT JOIN medical_records mr ON mr.registration_id = r.registration_id
+            WHERE r.registration_id = %s
+            """,
+            (registration_id,),
+        )
+        if current:
+            lab_of_reg = fetch_all(
+                """
+                SELECT t.test_id, t.test_no, t.test_status, t.sample_type, t.ordered_at, t.total_fee,
+                       SUM(CASE WHEN r.result_flag IS NOT NULL AND r.result_flag <> '' AND r.result_flag <> '正常'
+                                THEN 1 ELSE 0 END) AS abnormal_cnt
+                FROM lab_tests t
+                LEFT JOIN lab_test_results r ON r.test_id = t.test_id
+                WHERE t.registration_id = %s
+                GROUP BY t.test_id ORDER BY t.test_id DESC
+                """,
+                (registration_id,),
+            )
+            lab_items = fetch_all(
+                "SELECT item_id, item_code, item_name, item_category, unit, price "
+                "FROM lab_items WHERE status = '启用' ORDER BY item_category, item_id"
+            )
+            medicines = fetch_all(
+                "SELECT medicine_id, medicine_code, medicine_name, specification, unit, "
+                "unit_price, stock_quantity FROM medicines WHERE status = '启用' ORDER BY medicine_name"
+            )
+
+    return render_template(
+        "consultation.html",
+        visit_queue=visit_queue, current=current, lab_of_reg=lab_of_reg,
+        lab_items=lab_items, medicines=medicines,
+        is_doctor=is_doctor, is_admin=is_admin,
+        my_doctor_name=user["user_name"] if is_doctor else None,
+        today=datetime.now().strftime("%Y-%m-%d"),
+    )
+
+
+# ============================================================
 # 收费退费
 # ============================================================
 
@@ -2303,19 +2622,40 @@ def medical_record_print(record_id):
             flash("只能查看自己书写的病历。", "error")
             return redirect(url_for("medical_records"))
 
+    # 本次就诊的检验单 + 逐项结果（含参考区间与异常标志），
+    # 供病历详情页把「检验科不正常数据」直观展示出来。
     lab_tests = fetch_all(
         """
-        SELECT t.test_id, t.test_no, t.test_status, t.sample_type, t.ordered_at,
-               GROUP_CONCAT(CONCAT(li.item_name, '(', IFNULL(r.result_value,'未出'), ')')
-                            ORDER BY li.item_id SEPARATOR '；') AS items
+        SELECT t.test_id, t.test_no, t.test_status, t.sample_type, t.ordered_at
         FROM lab_tests t
-        LEFT JOIN lab_test_results r ON r.test_id = t.test_id
-        LEFT JOIN lab_items li ON r.item_id = li.item_id
         WHERE t.registration_id = %s
-        GROUP BY t.test_id ORDER BY t.test_id
+        ORDER BY t.test_id
         """,
         (record["registration_id"],),
     )
+    lab_results = {}
+    lab_abnormal_count = 0
+    if lab_tests:
+        test_ids = [t["test_id"] for t in lab_tests]
+        ph = ", ".join(["%s"] * len(test_ids))
+        detail = fetch_all(
+            """
+            SELECT r.test_id, li.item_name, li.unit, li.reference_range,
+                   r.result_value, r.result_flag, r.result_note
+            FROM lab_test_results r
+            JOIN lab_items li ON r.item_id = li.item_id
+            WHERE r.test_id IN (%s)
+            ORDER BY r.test_id, li.item_id
+            """ % ph,
+            tuple(test_ids),
+        )
+        for d in detail:
+            lab_results.setdefault(d["test_id"], []).append(d)
+            # 「不正常」= 标志不是正常/空（偏高 / 偏低 / 异常 / 阳性 等）
+            flag = (d["result_flag"] or "").strip()
+            if flag and flag != "正常":
+                lab_abnormal_count += 1
+
     prescriptions = fetch_all(
         """
         SELECT p.prescription_no, p.prescription_status, p.total_amount, p.prescribe_date,
@@ -2344,6 +2684,7 @@ def medical_record_print(record_id):
         (record["patient_id"],),
     )
     return render_template("medical_record_print.html", record=record, lab_tests=lab_tests,
+                           lab_results=lab_results, lab_abnormal_count=lab_abnormal_count,
                            prescriptions=prescriptions, history=history,
                            now=datetime.now().strftime("%Y-%m-%d %H:%M"), is_admin=is_admin)
 

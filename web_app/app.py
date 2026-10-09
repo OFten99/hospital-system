@@ -317,6 +317,10 @@ def handle_db_error(error):
     ``handle_integrity_error`` 接走（并能指出具体是哪个字段），
     走到这里的主要是连接失败、超时、权限、SQL 语法等其余 mysql 错误。
     下面的 Duplicate entry 判断保留作二重保险。
+
+    另外，**取值类错误（1406 超长 / 1264 越界 / 1265 ENUM 非法值）也只能在这一层**
+    处理：它们抛的是 DataError / DatabaseError，不是 IntegrityError，
+    放到 handle_integrity_error 里永远不会被调用（详见文件末尾的说明）。
     """
     message = str(error)
     # 存储过程 SIGNAL 抛出的业务错误（1644 为 SIGNAL 的错误码）
@@ -331,6 +335,21 @@ def handle_db_error(error):
         return "该数据已被挂号、处方或收费记录引用，不能直接删除。"
     if "Incorrect datetime value" in message or "Incorrect date value" in message:
         return "日期格式错误：日期用 2026-09-14，日期时间用 2026-09-14 08:00:00。"
+
+    # ---- 以下三类必须在这里兜，不能放在 handle_integrity_error ----
+    # 实测（MySQL 8.4 + mysql-connector-python）：
+    #   errno 1406  超长      -> DataError      (SQLSTATE 22001)
+    #   errno 1264  数值越界   -> DataError      (SQLSTATE 22003)
+    #   errno 1265  ENUM 非法值 -> DatabaseError  (SQLSTATE 01000)
+    # 三者都不是 IntegrityError，所以只会落到这一层。
+    if "1406" in message or "Data too long" in message:
+        return "输入内容超出字段长度限制，请缩短后重试。"
+    if "1264" in message or "Out of range value" in message:
+        return "输入数值超出允许范围，请检查后重试。"
+    if "1265" in message or "Data truncated" in message:
+        return ("提交的取值不在该字段允许的范围内（账号状态、性别、支付方式、"
+                "药品类型等下拉项请重新选择），或输入格式与字段类型不符，请检查后重试。")
+
     return f"数据库操作失败：{message}"
 # ---------------------------------------------------------------
 # 异常分层（统一在这里翻译成用户能看懂的中文）
@@ -394,11 +413,10 @@ def handle_integrity_error(error):
     if errno == 1452 or "a foreign key constraint fails" in message:
         return "关联的数据不存在或已被删除，请刷新页面后重试。"
 
-    # 1406：数据超长（严格模式下会直接报错）；1264：数值越界
-    if errno == 1406 or "Data too long" in message:
-        return "输入内容超出字段长度限制，请缩短后重试。"
-    if errno == 1264 or "Out of range value" in message:
-        return "输入数值超出允许范围，请检查后重试。"
+    # 1406 超长 / 1264 越界 **不在这里**处理：它们实测抛的是 DataError
+    # （SQLSTATE 22001/22003），而 DataError 与 IntegrityError 是兄弟类，
+    # 并不会被上面那个 except 捕获，写了也永远不生效。
+    # 这两类连同 1265（ENUM 非法值）统一放在 handle_db_error 里处理。
 
     return "数据不符合完整性约束，请检查输入后重试。"
 
@@ -2130,8 +2148,10 @@ def users():
                 )
                 flash("密码已重置。", "success")
             elif action == "toggle_status":
+                # 注意：account_status 的取值是 ENUM('启用','锁定')，不是「停用」。
+                # 写成「停用」会命中 ENUM 非法值，MySQL 报 1265 Data truncated。
                 execute(
-                    "UPDATE users SET account_status = IF(account_status = '启用', '停用', '启用') WHERE user_id = %s",
+                    "UPDATE users SET account_status = IF(account_status = '启用', '锁定', '启用') WHERE user_id = %s",
                     (int(request.form["user_id"]),),
                 )
                 flash("账号状态已更新。", "success")

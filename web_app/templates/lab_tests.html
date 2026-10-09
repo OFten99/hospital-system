@@ -73,16 +73,10 @@
         </select>
         <p class="hint">只显示「待就诊 / 就诊中」的就诊；已退号、已就诊的挂号不可关联开单。</p>
       </div>
-      <div class="field">
-        <label>标本类型</label>
-        <select name="sample_type" required>
-          <option value="血液">血液</option>
-          <option value="尿液">尿液</option>
-          <option value="粪便">粪便</option>
-          <option value="其他">其他</option>
-        </select>
-      </div>
     </div>
+    {# 标本类型不再让用户选：由下方勾选的检验项目类别自动判定
+       （尿常规→尿液、粪便常规→粪便、其余→血液），此处仅作说明。 #}
+    <p class="hint">标本类型将按所勾选检验项目的类别自动判定：尿常规→尿液、粪便常规→粪便、其余→血液。</p>
     <h3 class="sub-title">选择检验项目</h3>
     <div class="item-groups">
       {% for cat, items_cat in items|groupby('item_category') %}

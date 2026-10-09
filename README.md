@@ -86,7 +86,7 @@ git add . && git commit -m "更新" && git push
 ## 目录结构
 
 ```
-├── sql/                          # 数据库脚本（01 建库 ~ 07 测试数据，08 检验科+体征，09 任务书补全，10 预约挂号，11 公告，12 手机号可空，13 门诊病历）
+├── sql/                          # 数据库脚本（01 建库 ~ 07 测试数据，08 检验科+体征，09 任务书补全，10 预约挂号，11 公告，12 手机号可空，13 门诊病历，14 挂号统计口径修正）
 ├── web_app/                      # Flask Web 后端（app.py + db.py + 24 个模板 + 样式，本地开发源码）
 ├── cloud-functions/              # EdgeOne Makers 云函数目录（由 build_edgeone.py 自动生成，勿手改）
 ├── docs/
@@ -129,7 +129,7 @@ git add . && git commit -m "更新" && git push
 | Web 路由 | 27（其中 19 个含 POST） |
 | 页面模板 | 24 |
 | 黑盒测试用例 | 50 |
-| `web_app/app.py` | 2962 行 / 约 137 KB |
+| `web_app/app.py` | 3019 行 / 约 139 KB |
 | `web_app/db.py` | 340 行（连接池 + 查询封装 + 事务化写入 + OUT 参数调用） |
 
 ## 数据库设计要点

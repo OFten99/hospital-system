@@ -119,18 +119,9 @@
 
     <div style="margin-top:20px">
       <div class="sub-title">检验申请（选填，勾选后将随病历一并开具）</div>
-      <div class="form-grid" style="margin-bottom:12px">
-        <div class="field">
-          <label>标本类型
-            <select name="sample_type">
-              <option value="血液">血液</option>
-              <option value="尿液">尿液</option>
-              <option value="粪便">粪便</option>
-              <option value="其他">其他</option>
-            </select>
-          </label>
-        </div>
-      </div>
+      {# 标本类型不再让用户选：按所勾选检验项目类别自动判定
+         （尿常规→尿液、粪便常规→粪便、其余→血液），与「检验科」页保持一致。 #}
+      <p class="hint">标本类型将按所勾选检验项目的类别自动判定：尿常规→尿液、粪便常规→粪便、其余→血液。</p>
       <div class="item-groups">
         {% for cat in lab_items|groupby('item_category') %}
         <div class="item-group">

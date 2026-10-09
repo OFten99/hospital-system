@@ -32,7 +32,7 @@ CREATE TABLE users (
   gender ENUM('男','女') NOT NULL COMMENT '性别',
   department_id INT NULL COMMENT '所属科室',
   role_id INT NOT NULL COMMENT '角色编号',
-  phone VARCHAR(20) NOT NULL UNIQUE COMMENT '联系电话',
+  phone VARCHAR(20) NULL UNIQUE COMMENT '联系电话（自助终端等岗位可留空）',
   username VARCHAR(50) NOT NULL UNIQUE COMMENT '登录名',
   password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希（加盐，约103字符，预留至255）',
   account_status ENUM('启用','锁定') NOT NULL DEFAULT '启用' COMMENT '账号状态',

@@ -1753,13 +1753,14 @@ def consultation(registration_id=None):
                 return redirect(url_for("consultation"))
 
             # ---------------------------------------------------------------
-            # 工作台内的三步操作复用既有的三条业务链路（不新增数据库对象）：
+            # 工作台内的四步操作复用既有的四条业务链路（不新增数据库对象）：
+            #   save_vitals → sp_add_vital_sign      （同「体征记录」页，第 1 步现场测量）
             #   save_record → sp_save_medical_record（同「门诊病历」页）
             #   order_lab   → sp_add_lab_test        （同「检验科」页）
             #   issue_drug  → sp_issue_prescription  （同「处方开具」页）
             # 每条都先按 registration_id 做归属校验，医生只能操作本人名下的挂号。
             # ---------------------------------------------------------------
-            if action in ("save_record", "order_lab", "issue_drug"):
+            if action in ("save_vitals", "save_record", "order_lab", "issue_drug"):
                 rid = int(request.form["registration_id"])
                 reg = _consultation_reg(rid, my_doctor_id) if is_doctor else fetch_one(
                     """
@@ -1783,7 +1784,32 @@ def consultation(registration_id=None):
                     )
                     return redirect(url_for("consultation", registration_id=rid))
 
-                if action == "save_record":
+                if action == "save_vitals":
+                    # 第 1 步的现场体征录入：体温 / 血压 / 心率 / 呼吸 / 身高体重。
+                    # ⚠️ patient_id 与 registration_id 一律取「接诊上下文」的值，
+                    #    绝不采信表单提交的这两个字段——否则医生可以构造 POST
+                    #    把体征写到别的患者头上（医疗数据必须与本次就诊严格绑定）。
+                    # 全部留空时视为「本次未测量」，直接提示，不写一条全 NULL 的记录。
+                    vitals_args = [
+                        reg["patient_id"],
+                        rid,
+                        int(user["user_id"]),
+                        _form_num("temperature", float),
+                        _form_num("systolic_pressure"),
+                        _form_num("diastolic_pressure"),
+                        _form_num("heart_rate"),
+                        _form_num("respiration_rate"),
+                        _form_num("weight", float),
+                        _form_num("height", float),
+                        request.form.get("vital_note") or None,
+                    ]
+                    if all(v is None for v in vitals_args[3:10]):
+                        flash("未填写任何体征数值，本次未记录体征。", "error")
+                        return redirect(url_for("consultation", registration_id=rid))
+                    call_proc("sp_add_vital_sign", vitals_args)
+                    flash("体征已记录，将一并写入本次就诊记录。", "success")
+
+                elif action == "save_record":
                     call_proc_scalar(
                         "sp_save_medical_record",
                         [
@@ -1887,6 +1913,10 @@ def consultation(registration_id=None):
     lab_of_reg = []
     lab_items = []
     medicines = []
+    vitals_of_reg = []
+    vital_history = []
+    past_visits = []
+    lab_details = {}
     if registration_id:
         current = _consultation_reg(registration_id, my_doctor_id) if is_doctor else fetch_one(
             """
@@ -1929,11 +1959,75 @@ def consultation(registration_id=None):
                 "SELECT medicine_id, medicine_code, medicine_name, specification, unit, "
                 "unit_price, stock_quantity FROM medicines WHERE status = '启用' ORDER BY medicine_name"
             )
+            # ---- 本次就诊已记录的体征（第 1 步现场测量）----
+            # 同时给出「既往体征」最近 3 次，便于医生对比本次测量值是否异常。
+            vitals_of_reg = fetch_all(
+                """
+                SELECT vital_id, temperature, systolic_pressure, diastolic_pressure,
+                       heart_rate, respiration_rate, weight, height, record_time, note
+                FROM vital_signs WHERE registration_id = %s
+                ORDER BY vital_id DESC
+                """,
+                (registration_id,),
+            )
+            vital_history = fetch_all(
+                """
+                SELECT vital_id, temperature, systolic_pressure, diastolic_pressure,
+                       heart_rate, respiration_rate, weight, record_time
+                FROM vital_signs
+                WHERE patient_id = %s AND (registration_id IS NULL OR registration_id <> %s)
+                ORDER BY record_time DESC, vital_id DESC LIMIT 3
+                """,
+                (current["patient_id"], registration_id),
+            )
+            # ---- 患者既往就诊史（不含本次）----
+            # 门诊场景里医生最需要「一眼看到老患者的历史诊断/用药/检验」，
+            # 否则要把病人转去「门诊病历」页反复检索。这里一次带出：
+            #   历次就诊（科室 + 医生 + 诊断 + 就诊时间）
+            # 用 LEFT JOIN 保证「只有挂号没有病历」的就诊也能出现在时间轴上。
+            past_visits = fetch_all(
+                """
+                SELECT r.registration_id, r.reg_no, r.reg_date, r.reg_type,
+                       r.visit_status, dept.department_name,
+                       u.user_name AS doctor_name,
+                       mr.record_id, mr.diagnosis, mr.diagnosis_code, mr.advice
+                FROM registrations r
+                LEFT JOIN departments dept ON r.department_id = dept.department_id
+                LEFT JOIN doctors d ON r.doctor_id = d.doctor_id
+                LEFT JOIN users u ON d.user_id = u.user_id
+                LEFT JOIN medical_records mr ON mr.registration_id = r.registration_id
+                WHERE r.patient_id = %s AND r.registration_id <> %s
+                ORDER BY r.reg_date DESC, r.registration_id DESC
+                LIMIT 8
+                """,
+                (current["patient_id"], registration_id),
+            )
+            # ---- 已开检验单的逐项结果（内联展示，免跳转）----
+            # lab_of_reg 是「单头」列表，这里补一个 {test_id: [明细行]} 的字典；
+            # 模板里用 lab_details.get(t.test_id) 取，避免在模板里做嵌套查询。
+            if lab_of_reg:
+                test_ids = [t["test_id"] for t in lab_of_reg]
+                ph = ", ".join(["%s"] * len(test_ids))
+                detail_rows = fetch_all(
+                    """
+                    SELECT r.test_id, i.item_name, i.item_category, i.unit, i.reference_range,
+                           r.result_value, r.result_flag, r.result_note
+                    FROM lab_test_results r
+                    JOIN lab_items i ON r.item_id = i.item_id
+                    WHERE r.test_id IN (%s)
+                    ORDER BY i.item_category, i.item_id
+                    """ % ph,
+                    tuple(test_ids),
+                )
+                for row in detail_rows:
+                    lab_details.setdefault(row["test_id"], []).append(row)
 
     return render_template(
         "consultation.html",
         visit_queue=visit_queue, current=current, lab_of_reg=lab_of_reg,
         lab_items=lab_items, medicines=medicines,
+        vitals_of_reg=vitals_of_reg, vital_history=vital_history,
+        past_visits=past_visits, lab_details=lab_details,
         is_doctor=is_doctor, is_admin=is_admin,
         my_doctor_name=user["user_name"] if is_doctor else None,
         today=datetime.now().strftime("%Y-%m-%d"),

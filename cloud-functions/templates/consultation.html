@@ -103,6 +103,70 @@
   </div>
 </div>
 
+{# ============ 二之二、患者既往就诊史（老患者一眼可查） ============ #}
+{% if past_visits %}
+<details class="past-visits">
+  <summary>
+    <strong>既往就诊史</strong>
+    <span class="muted">（本院共 {{ past_visits|length }} 次历史就诊，含诊断与医嘱）</span>
+    <span class="pv-toggle-hint">点击展开 / 收起</span>
+  </summary>
+  <div class="table-wrap small">
+    <table>
+      <thead>
+        <tr><th>就诊日期</th><th>科室</th><th>接诊医生</th><th>号别</th>
+            <th>诊断</th><th>医嘱</th><th>病历</th></tr>
+      </thead>
+      <tbody>
+        {% for v in past_visits %}
+        <tr>
+          <td>{{ v.reg_date }}</td>
+          <td>{{ v.department_name or '—' }}</td>
+          <td>{{ v.doctor_name or '—' }}</td>
+          <td><span class="badge">{{ v.reg_type }}</span></td>
+          <td>
+            {% if v.diagnosis %}
+              {{ v.diagnosis }}{% if v.diagnosis_code %}<span class="muted">（{{ v.diagnosis_code }}）</span>{% endif %}
+            {% else %}<span class="muted">未书写病历</span>{% endif %}
+          </td>
+          <td class="pv-advice">{{ v.advice or '—' }}</td>
+          <td>
+            {% if v.record_id %}
+            <a class="btn-link" href="{{ url_for('medical_record_print', record_id=v.record_id) }}">查看</a>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if vital_history %}
+  <div class="pv-vitals">
+    <strong>近 {{ vital_history|length }} 次体征（本次之前）</strong>
+    <div class="table-wrap small" style="margin-top:6px">
+      <table>
+        <thead>
+          <tr><th>记录时间</th><th>体温(℃)</th><th>血压(mmHg)</th><th>心率</th><th>呼吸</th><th>体重(kg)</th></tr>
+        </thead>
+        <tbody>
+          {% for vh in vital_history %}
+          <tr>
+            <td>{{ vh.record_time }}</td>
+            <td>{{ vh.temperature if vh.temperature is not none else '—' }}</td>
+            <td>{% if vh.systolic_pressure and vh.diastolic_pressure %}{{ vh.systolic_pressure }}/{{ vh.diastolic_pressure }}{% else %}—{% endif %}</td>
+            <td>{{ vh.heart_rate if vh.heart_rate is not none else '—' }}</td>
+            <td>{{ vh.respiration_rate if vh.respiration_rate is not none else '—' }}</td>
+            <td>{{ vh.weight if vh.weight is not none else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</details>
+{% endif %}
+
 {# ============ 三、步骤 1：主观诉求 + 病历 ============ #}
 <div class="form-card wide-form">
   <h2><span class="step-tag">第 1 步</span> 询问主观诉求 · 书写病历</h2>
@@ -110,6 +174,51 @@
     主诉即患者本次就诊最主要的症状与持续时间；如需先做检验再下诊断，可先只填主诉与现病史，
     保存后到第 2 步开检验，回来再补诊断。
   </p>
+
+  {# ---- 现场体征测量（同一接诊上下文，无需切到「体征记录」页）---- #}
+  <div class="vital-strip">
+    <div class="vs-head">
+      <strong>现场体征测量</strong>
+      <span class="hint">
+        与本次就诊绑定入库；只填需要记录的项，全部留空则不写入。
+        数值范围由数据库统一校验（如体温 30~45℃）。
+      </span>
+    </div>
+    <form method="post" class="inline-vital-form">
+      <input type="hidden" name="action" value="save_vitals">
+      <input type="hidden" name="registration_id" value="{{ current.registration_id }}">
+      <div class="vs-grid">
+        <label>体温 ℃<input name="temperature" type="number" step="0.1" min="30" max="45"
+               value="{{ '' if not vitals_of_reg else (vitals_of_reg[0].temperature if vitals_of_reg[0].temperature is not none else '') }}"></label>
+        <label>收缩压 mmHg<input name="systolic_pressure" type="number" min="40" max="300"
+               value="{{ '' if not vitals_of_reg else (vitals_of_reg[0].systolic_pressure if vitals_of_reg[0].systolic_pressure is not none else '') }}"></label>
+        <label>舒张压 mmHg<input name="diastolic_pressure" type="number" min="30" max="200"
+               value="{{ '' if not vitals_of_reg else (vitals_of_reg[0].diastolic_pressure if vitals_of_reg[0].diastolic_pressure is not none else '') }}"></label>
+        <label>心率 次/分<input name="heart_rate" type="number" min="20" max="250"
+               value="{{ '' if not vitals_of_reg else (vitals_of_reg[0].heart_rate if vitals_of_reg[0].heart_rate is not none else '') }}"></label>
+        <label>呼吸 次/分<input name="respiration_rate" type="number" min="5" max="80"
+               value="{{ '' if not vitals_of_reg else (vitals_of_reg[0].respiration_rate if vitals_of_reg[0].respiration_rate is not none else '') }}"></label>
+        <label>体重 kg<input name="weight" type="number" step="0.01" min="1" max="400"
+               value="{{ '' if not vitals_of_reg else (vitals_of_reg[0].weight if vitals_of_reg[0].weight is not none else '') }}"></label>
+        <label>身高 cm<input name="height" type="number" step="0.01" min="30" max="250"
+               value="{{ '' if not vitals_of_reg else (vitals_of_reg[0].height if vitals_of_reg[0].height is not none else '') }}"></label>
+        <label class="vs-note">备注<input name="vital_note" maxlength="200" placeholder="如：活动后测量"></label>
+      </div>
+      <div class="form-actions" style="margin-top:10px">
+        <button type="submit">记录体征</button>
+        {% if vitals_of_reg %}
+        <span class="hint">
+          本次已记录 {{ vitals_of_reg|length }} 次；最近一次：
+          {% set lv = vitals_of_reg[0] %}
+          {% if lv.temperature is not none %}体温 {{ lv.temperature }}℃ {% endif %}
+          {% if lv.systolic_pressure and lv.diastolic_pressure %}血压 {{ lv.systolic_pressure }}/{{ lv.diastolic_pressure }} {% endif %}
+          {% if lv.heart_rate is not none %}心率 {{ lv.heart_rate }} {% endif %}
+          （{{ lv.record_time }}）
+        </span>
+        {% endif %}
+      </div>
+    </form>
+  </div>
 
   <form method="post" id="mr-form">
     <input type="hidden" name="action" value="save_record">
@@ -225,6 +334,7 @@
       <thead><tr><th>检验单号</th><th>标本类型</th><th>状态</th><th>开单时间</th><th>异常项</th><th>操作</th></tr></thead>
       <tbody>
         {% for t in lab_of_reg %}
+        {% set rows = lab_details.get(t.test_id, []) %}
         <tr {% if t.abnormal_cnt %}class="row-abn"{% endif %}>
           <td><code>{{ t.test_no }}</code></td>
           <td>{{ t.sample_type }}</td>
@@ -235,8 +345,43 @@
             {% elif t.test_status == '已完成' %}<span class="ok-badge">全部正常</span>
             {% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td><a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">查看结果</a></td>
+          <td>
+            {% if rows %}
+            <button type="button" class="btn-link lab-toggle" data-target="lab-detail-{{ t.test_id }}">展开结果</button>
+            &nbsp;<a class="btn-link" href="{{ url_for('lab_results', test_id=t.test_id) }}">完整页</a>
+            {% else %}
+            <span class="muted">待检验科录入</span>
+            {% endif %}
+          </td>
         </tr>
+        {% if rows %}
+        <tr class="lab-detail-row" id="lab-detail-{{ t.test_id }}" hidden>
+          <td colspan="6">
+            <table class="inner-table">
+              <thead><tr><th>项目</th><th>类别</th><th>结果</th><th>参考区间</th><th>标志</th></tr></thead>
+              <tbody>
+                {% for r in rows %}
+                {% set abn = r.result_flag and r.result_flag != '正常' %}
+                <tr {% if abn %}class="row-abn"{% endif %}>
+                  <td>{{ r.item_name }}</td>
+                  <td class="muted">{{ r.item_category }}</td>
+                  <td>
+                    {% if abn %}
+                    <strong class="mr-abn">{{ r.result_value }} {{ r.unit or '' }}<span class="abn-mark">↑</span></strong>
+                    {% else %}{{ r.result_value }} {{ r.unit or '' }}{% endif %}
+                  </td>
+                  <td class="muted">{{ r.reference_range or '—' }}</td>
+                  <td>
+                    {% if abn %}<span class="abn-badge">{{ r.result_flag }}</span>
+                    {% else %}<span class="ok-badge">正常</span>{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>
@@ -352,6 +497,22 @@ document.getElementById('pres-form').addEventListener('submit', function (e) {
     e.preventDefault();
     alert('请先选择至少一种药品；若本次无需开药，请直接点击「完成就诊」。');
   }
+});
+
+// 检验结果内联展开 / 收起
+document.querySelectorAll('.lab-toggle').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const row = document.getElementById(btn.dataset.target);
+    if (!row) return;
+    const hidden = row.hasAttribute('hidden');
+    if (hidden) {
+      row.removeAttribute('hidden');
+      btn.textContent = '收起结果';
+    } else {
+      row.setAttribute('hidden', '');
+      btn.textContent = '展开结果';
+    }
+  });
 });
 </script>
 {% endblock %}

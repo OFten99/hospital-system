@@ -49,7 +49,7 @@
               <select name="medicine_id[]" class="medicine-select" required>
                 <option value="">-- 选择药品 --</option>
                 {% for m in medicines %}
-                <option value="{{ m.medicine_id }}" data-price="{{ m.unit_price }}">{{ m.medicine_name }}（{{ m.specification }}，库存{{ m.stock_quantity }}）</option>
+                <option value="{{ m.medicine_id }}" data-price="{{ m.unit_price }}">{{ m.medicine_name }}（{{ m.specification or '规格未填' }}，库存{{ m.stock_quantity }}）</option>
                 {% endfor %}
               </select>
             </td>

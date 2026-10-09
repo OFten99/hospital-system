@@ -556,3 +556,92 @@ button[disabled] {
 }
 tr.row-abn td { background: #fafafa; }
 tr.row-abn td:first-child { box-shadow: inset 3px 0 0 #18181b; }
+
+/* ===== 接诊工作台：现场体征测量（第 1 步内联） ===== */
+.vital-strip {
+  border: 1px solid var(--rule);
+  border-left: 3px solid #a1a1aa;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: #fafafa;
+}
+.vital-strip .vs-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.vital-strip .vs-head .hint { margin: 0; }
+.vs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.vs-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.vs-grid label input {
+  padding: 7px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: #18181b;
+  background: #fff;
+}
+.vs-grid .vs-note { grid-column: 1 / -1; }
+
+/* ===== 接诊工作台：患者既往就诊史（可折叠） ===== */
+.past-visits {
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+.past-visits > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  list-style: none;
+}
+.past-visits > summary::-webkit-details-marker { display: none; }
+.past-visits > summary::before {
+  content: "\25B8";
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.past-visits[open] > summary::before { content: "\25BE"; }
+.past-visits .pv-toggle-hint {
+  margin-left: auto;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.past-visits > .table-wrap { margin-top: 12px; }
+.pv-advice {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-vitals { margin-top: 14px; }
+
+/* ===== 接诊工作台：检验结果内联展开 ===== */
+.inner-table { width: 100%; border-collapse: collapse; }
+.inner-table th, .inner-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.9rem;
+  text-align: left;
+}
+.inner-table th { color: var(--muted); font-weight: 700; }
+.inner-table tr:last-child td { border-bottom: none; }
+tr.lab-detail-row > td { background: #fafafa; padding: 10px 14px !important; }

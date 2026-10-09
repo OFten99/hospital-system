@@ -4,7 +4,7 @@
 访问地址：http://127.0.0.1:5000
 
 模块：患者档案、挂号、医生排班、处方开具、收费退费、药品目录、报表查询。
-角色：ADMIN 管理员 / DOCTOR 医生 / REGISTRAR 挂号员 / CASHIER 收费员
+角色：ADMIN 系统超级用户 / DOCTOR 医生 / CASHIER 收费人员 / LAB_TECH 检验科人员 / PHARMACIST 药房人员
 """
 
 import csv
@@ -265,12 +265,9 @@ def login_required(view_func):
 
 
 PERMISSIONS = {
-    # 挂号员：只做线下窗口的挂号 / 退号 / 患者建档 / 看排班。
-    # 「预约挂号」是线上渠道（患者自助 / 自助机）能力，窗口挂号员不再开放，
-    # 故这里不含 "appointments"。菜单入口由 base.html 的 role_allowed('appointments')
-    # 自动隐藏；若直接敲 /appointments 会被 permission_required 挡回首页。
-    "REGISTRAR": {"dashboard", "patients", "registrations", "schedules"},
-    "REGMACHINE": {"kiosk"},
+    # 收费人员：收费窗口一线，同时承担患者建档、挂号/退号与排班查看
+    # （挂号员岗位已并入收费窗口，本系统不再单设「挂号员」「挂号机」角色）。
+    "CASHIER": {"dashboard", "patients", "registrations", "schedules", "payments"},
     # 医生：接诊工作台 + 排班 + 门诊病历 + 处方 + 检验科 + 体征 + 诊断
     # 说明：这里必须与 base.html 里 DOCTOR 分支写死的菜单项一一对应，
     # 否则会出现「路由能进、菜单没入口」或反过来的情况。
@@ -279,7 +276,6 @@ PERMISSIONS = {
     #                医生须能直接维护病人档案的最近诊断，而不能只靠管理员）
     "DOCTOR": {"consultation", "dashboard", "schedules", "prescriptions",
                "medical_records", "lab", "vitals", "diagnosis"},
-    "CASHIER": {"dashboard", "payments"},
     "LAB_TECH": {"dashboard", "lab"},
     "PHARMACIST": {"dashboard", "dispense", "medicines"},
     "ADMIN": {"dashboard", "patients", "registrations", "schedules", "prescriptions",
@@ -404,7 +400,7 @@ _UNIQUE_FIELD_HINTS = {
 
 # 列名 -> 中文名，配合 errno 1048（Column 'x' cannot be null）。
 # 这里只收「表单里容易留空、但库里 NOT NULL」的列。
-# 注意 users.phone 已放开为可空（自助挂号机不需要手机号，见 sql/12），
+# 注意 users.phone 已放开为可空（见 sql/12），
 # 仍保留在这里只是当兜底：万一哪个库没跑迁移，也能给出「联系电话不能为空」
 # 而不是「数据不符合完整性约束」。patients.phone 仍是 NOT NULL。
 # 忘了登记的列会退化成「有必填项未填写」，不至于再冒出看不懂的套话。
@@ -500,18 +496,14 @@ def make_no(prefix):
 
 
 # 可挂号排班列表的公共查询主体。
-# 剩余号源 = 最大号源 - 已挂号 - 尚未过期的有效预约。registrations /
-# appointments / kiosk 三处都要用这段查询，原先各自复制了一份（约 18 行 ×3），
-# 任何调整都要同步改三处。这里抽成常量，各处只拼接自己的 WHERE 与 ORDER BY。
+# 剩余号源 = 最大号源 - 已挂号数。
 _SCHEDULE_SELECT_SQL = """
     SELECT s.schedule_id, s.work_date, s.shift_type, s.clinic_room,
            s.max_registrations, s.registered_count,
            doc.doctor_id, doc.doctor_name, doc.title,
            COALESCE(dept.department_name, '未指定科室') AS department_name,
            COALESCE(doc.consultation_fee, 0) AS consultation_fee,
-           GREATEST(s.max_registrations - s.registered_count -
-             (SELECT COUNT(*) FROM appointments a
-               WHERE a.schedule_id = s.schedule_id AND a.status = '已预约' AND a.expire_time > NOW()), 0) AS remain
+           GREATEST(s.max_registrations - s.registered_count, 0) AS remain
     FROM doctor_schedules s
     JOIN (
       SELECT d.doctor_id, u.user_name AS doctor_name, d.title, d.consultation_fee, u.department_id
@@ -666,8 +658,6 @@ def login():
         session["user"] = user
         execute("UPDATE users SET last_login_at = NOW() WHERE user_id = %s", (user["user_id"],))
         flash(f"登录成功：{user['user_name']}（{user['role_name']}）", "success")
-        if user["role_code"] == "REGMACHINE":
-            return redirect(url_for("kiosk"))
         return redirect(url_for("dashboard"))
     return render_template("login.html")
 
@@ -686,9 +676,6 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    # 自助挂号机终端登录后直达自助挂号页，不展示内部运营看板
-    if current_user()["role_code"] == "REGMACHINE":
-        return redirect(url_for("kiosk"))
     today = datetime.now().strftime("%Y-%m-%d")
     stats = {
         "today_reg": fetch_one(
@@ -890,362 +877,6 @@ def registrations():
 
 
 # ============================================================
-# 预约挂号（提前预约 -> 预约流水号与挂号时限 -> 取号转正式挂号）
-# ============================================================
-
-@app.route("/appointments", methods=["GET", "POST"])
-@login_required
-@permission_required("appointments")
-def appointments():
-    if request.method == "POST":
-        action = request.form.get("action")
-        try:
-            if action == "find":
-                keyword = request.form.get("keyword", "").strip()
-                if not keyword:
-                    flash("请输入身份证号或手机号。", "error")
-                    return redirect(url_for("appointments"))
-                return redirect(url_for("appointments", keyword=keyword))
-            if action == "create":
-                appointment_no = make_no("APT")
-                call_proc(
-                    "sp_create_appointment",
-                    [
-                        appointment_no,
-                        int(request.form["patient_id"]),
-                        int(request.form["schedule_id"]),
-                        request.form["reg_type"],
-                        int(current_user()["user_id"]),
-                    ],
-                )
-                appt = fetch_one(
-                    "SELECT appointment_no, appointment_date, expire_time FROM appointments WHERE appointment_no = %s",
-                    (appointment_no,),
-                )
-                if appt:
-                    flash(
-                        f"预约成功：流水号 {appt['appointment_no']}，就诊日期 {appt['appointment_date']}，"
-                        f"请于 {appt['expire_time'].strftime('%m-%d %H:%M')} 前取号。",
-                        "success",
-                    )
-                else:
-                    flash("预约成功。", "success")
-            elif action == "cancel":
-                call_proc(
-                    "sp_cancel_appointment",
-                    [
-                        int(request.form["appointment_id"]),
-                        int(current_user()["user_id"]),
-                        request.form.get("reason") or "患者申请取消预约",
-                    ],
-                )
-                flash("预约已取消，号源已释放。", "success")
-        except mysql.connector.errors.IntegrityError as error:
-            flash(handle_integrity_error(error), "error")
-        except mysql.connector.Error as error:
-            flash(handle_db_error(error), "error")
-        except (KeyError, TypeError, ValueError) as error:
-            flash(handle_param_error(error), "error")
-        return redirect(url_for("appointments"))
-
-    # 患者识别（同自助终端：身份证号或手机号）
-    keyword = request.args.get("keyword", "").strip()
-    patient = None
-    if keyword:
-        patient = fetch_one(
-            """
-            SELECT patient_id, patient_no, patient_name, gender, birth_date, id_card, phone
-            FROM patients WHERE id_card = %s OR phone = %s
-            """,
-            (keyword, keyword),
-        )
-
-    # 默认展示次日的排班（当日挂号请走挂号管理/自助终端）
-    appt_date = request.args.get("appt_date") or (
-        datetime.now() + timedelta(days=1)
-    ).strftime("%Y-%m-%d")
-    schedules = fetch_all(
-        _SCHEDULE_SELECT_SQL + """
-        WHERE s.work_date = %s AND s.schedule_status = '正常'
-        ORDER BY s.work_date, dept.department_name, s.shift_type
-        """,
-        (appt_date,),
-    )
-
-    # 预约列表（已预约且超过挂号时限展示为"已过期"）
-    status_filter = request.args.get("status", "").strip()
-    where = "WHERE 1=1"
-    params = []
-    if status_filter:
-        where += " AND CASE WHEN a.status = '已预约' AND a.expire_time < NOW() THEN '已过期' ELSE a.status END = %s"
-        params.append(status_filter)
-    if keyword and patient:
-        where += " AND a.patient_id = %s"
-        params.append(patient["patient_id"])
-    rows = fetch_all(
-        f"""
-        SELECT a.appointment_id, a.appointment_no, a.appointment_date, a.reg_type, a.expire_time,
-               CASE WHEN a.status = '已预约' AND a.expire_time < NOW() THEN '已过期' ELSE a.status END AS status,
-               pat.patient_name, dept.department_name, u.user_name AS doctor_name,
-               s.shift_type, s.clinic_room
-        FROM appointments a
-        JOIN patients pat ON a.patient_id = pat.patient_id
-        JOIN doctor_schedules s ON a.schedule_id = s.schedule_id
-        JOIN doctors doc ON s.doctor_id = doc.doctor_id
-        JOIN users u ON doc.user_id = u.user_id
-        JOIN departments dept ON u.department_id = dept.department_id
-        {where}
-        ORDER BY a.created_at DESC
-        """,
-        params,
-    )
-    return render_template(
-        "appointments.html", patient=patient, keyword=keyword,
-        appt_date=appt_date, schedules=schedules, rows=rows, status=status_filter,
-    )
-
-
-@app.route("/appointments/<int:appointment_id>/checkin", methods=["GET", "POST"])
-@login_required
-@permission_required("appointments")
-def appointment_checkin(appointment_id):
-    appt = fetch_one(
-        """
-        SELECT a.appointment_id, a.appointment_no, a.appointment_date, a.reg_type,
-               a.expire_time, a.status,
-               pat.patient_id, pat.patient_name, pat.id_card,
-               dept.department_name, u.user_name AS doctor_name, d.consultation_fee,
-               s.shift_type, s.clinic_room
-        FROM appointments a
-        JOIN patients pat ON a.patient_id = pat.patient_id
-        JOIN doctor_schedules s ON a.schedule_id = s.schedule_id
-        JOIN doctors d ON s.doctor_id = d.doctor_id
-        JOIN users u ON d.user_id = u.user_id
-        JOIN departments dept ON u.department_id = dept.department_id
-        WHERE a.appointment_id = %s
-        """,
-        (appointment_id,),
-    )
-    if not appt:
-        flash("预约记录不存在。", "error")
-        return redirect(url_for("appointments"))
-    if request.method == "POST":
-        pay_method = request.form.get("pay_method", "微信")
-        try:
-            call_proc(
-                "sp_checkin_appointment",
-                [
-                    appointment_id,
-                    make_no("REG"),
-                    int(current_user()["user_id"]),
-                    pay_method,
-                ],
-            )
-            flash("取号成功，已转正式挂号并收取挂号费。", "success")
-        except mysql.connector.errors.IntegrityError as error:
-            flash(handle_integrity_error(error), "error")
-        except mysql.connector.Error as error:
-            flash(handle_db_error(error), "error")
-            return redirect(url_for("appointments"))
-        return redirect(url_for("appointments"))
-
-    # 仅"已预约"、未过挂号时限且为就诊当日可办理取号
-    can_checkin = (
-        appt["status"] == "已预约"
-        and appt["expire_time"] > datetime.now()
-        and appt["appointment_date"] == datetime.now().date()
-    )
-    return render_template("appointment_checkin.html", appt=appt, can_checkin=can_checkin)
-
-
-# ============================================================
-# 自助挂号机（终端专用：患者识别 -> 选排班 -> 挂号 -> 排队号）
-# ============================================================
-
-@app.route("/kiosk", methods=["GET", "POST"])
-@login_required
-@permission_required("kiosk")
-def kiosk():
-    if request.method == "POST":
-        action = request.form.get("action")
-        try:
-            if action == "find":
-                keyword = request.form.get("id_card", "").strip()
-                if not keyword:
-                    flash("请输入身份证号或手机号。", "error")
-                    return redirect(url_for("kiosk"))
-                return redirect(url_for("kiosk", id_card=keyword))
-            if action == "quick_register":
-                keyword = request.form.get("id_card", "").strip()
-                name = request.form.get("patient_name", "").strip()
-                gender = request.form.get("gender", "男")
-                phone = request.form.get("phone", "").strip()
-                birth_date = request.form.get("birth_date") or None
-                if not keyword or not name or not phone:
-                    flash("身份证号、姓名、手机号必填。", "error")
-                    return redirect(url_for("kiosk", id_card=keyword))
-                execute(
-                    """
-                    INSERT INTO patients (patient_no, patient_name, gender, birth_date,
-                                          id_card, phone, blood_type)
-                    VALUES (%s, %s, %s, %s, %s, %s, '未知')
-                    """,
-                    (make_no("P"), name, gender, birth_date, keyword, phone),
-                )
-                flash("建档成功，请确认信息后选择排班挂号。", "success")
-                return redirect(url_for("kiosk", id_card=keyword))
-            if action == "register":
-                patient_id = int(request.form["patient_id"])
-                schedule_id = int(request.form["schedule_id"])
-                reg_type = request.form["reg_type"]
-                pay_method = request.form["pay_method"]
-                if reg_type not in ("普通号", "专家号") or pay_method not in ("微信", "支付宝", "医保"):
-                    flash("号别或支付方式无效（自助机支持微信/支付宝/医保）。", "error")
-                    return redirect(url_for("kiosk"))
-                patient = fetch_one(
-                    "SELECT patient_id, patient_name FROM patients WHERE patient_id = %s", (patient_id,)
-                )
-                schedule = fetch_one(
-                    "SELECT doctor_id FROM doctor_schedules WHERE schedule_id = %s", (schedule_id,)
-                )
-                if not patient:
-                    flash("患者不存在，请重新识别。", "error")
-                    return redirect(url_for("kiosk"))
-                if not schedule:
-                    flash("排班不存在，请刷新后重试。", "error")
-                    return redirect(url_for("kiosk"))
-                reg_no = make_no("REG")
-                call_proc(
-                    "sp_register",
-                    [
-                        reg_no,
-                        patient_id,
-                        schedule["doctor_id"],
-                        schedule_id,
-                        reg_type,
-                        int(current_user()["user_id"]),
-                        pay_method,
-                        None,
-                    ],
-                )
-                reg = fetch_one(
-                    """
-                    SELECT r.reg_no, r.queue_no, r.reg_fee, r.reg_type,
-                           dept.department_name, u.user_name AS doctor_name, d.title
-                    FROM registrations r
-                    JOIN departments dept ON r.department_id = dept.department_id
-                    JOIN doctors d ON r.doctor_id = d.doctor_id
-                    JOIN users u ON d.user_id = u.user_id
-                    WHERE r.reg_no = %s
-                    """,
-                    (reg_no,),
-                )
-                sched = fetch_one(
-                    "SELECT clinic_room FROM doctor_schedules WHERE schedule_id = %s", (schedule_id,)
-                )
-                success = {
-                    "patient_name": patient["patient_name"],
-                    "clinic_room": sched["clinic_room"] if sched else None,
-                }
-                success.update(reg or {})
-                return render_template(
-                    "kiosk.html", id_card="", patient=None, today_regs=[],
-                    schedules=[], success=success,
-                )
-        except mysql.connector.errors.IntegrityError as error:
-            flash(handle_integrity_error(error), "error")
-        except mysql.connector.Error as error:
-            flash(handle_db_error(error), "error")
-            return redirect(url_for("kiosk", id_card=request.form.get("id_card", "").strip()))
-        except (KeyError, TypeError, ValueError) as error:
-            flash(handle_param_error(error), "error")
-            return redirect(url_for("kiosk"))
-
-    id_card = request.args.get("id_card", "").strip()
-    patient = None
-    today_regs = []
-    reg_history = []
-    pay_history = []
-    reports = []
-    if id_card:
-        patient = fetch_one(
-            """
-            SELECT patient_id, patient_no, patient_name, gender, birth_date, id_card, phone
-            FROM patients WHERE id_card = %s OR phone = %s
-            """,
-            (id_card, id_card),
-        )
-        if patient:
-            today_regs = fetch_all(
-                """
-                SELECT r.reg_no, r.reg_type, r.reg_fee, r.queue_no, r.visit_status,
-                       dept.department_name, u.user_name AS doctor_name
-                FROM registrations r
-                JOIN departments dept ON r.department_id = dept.department_id
-                JOIN doctors doc ON r.doctor_id = doc.doctor_id
-                JOIN users u ON doc.user_id = u.user_id
-                WHERE r.patient_id = %s AND r.reg_date = CURDATE()
-                ORDER BY r.queue_no
-                """,
-                (patient["patient_id"],),
-            )
-            # 患者端：历史就诊记录
-            reg_history = fetch_all(
-                """
-                SELECT r.reg_no, r.reg_date, r.reg_type, r.reg_fee, r.queue_no, r.visit_status,
-                       dept.department_name, u.user_name AS doctor_name
-                FROM registrations r
-                JOIN departments dept ON r.department_id = dept.department_id
-                JOIN doctors doc ON r.doctor_id = doc.doctor_id
-                JOIN users u ON doc.user_id = u.user_id
-                WHERE r.patient_id = %s
-                ORDER BY r.reg_date DESC, r.registration_id DESC
-                """,
-                (patient["patient_id"],),
-            )
-            # 患者端：缴费记录
-            pay_history = fetch_all(
-                """
-                SELECT p.payment_no, p.payment_type, p.pay_amount, p.pay_method, p.pay_status, p.pay_time
-                FROM payments p
-                WHERE p.patient_id = %s
-                ORDER BY p.payment_id DESC
-                """,
-                (patient["patient_id"],),
-            )
-            # 患者端：检验报告单（含结果明细）
-            reports = fetch_all(
-                """
-                SELECT t.test_id, t.test_no, t.total_fee, t.test_status, t.completed_at,
-                       dept.department_name,
-                       GROUP_CONCAT(
-                         CONCAT(li.item_name, '：', IFNULL(r.result_value, '未出'),
-                           IF(r.result_flag IS NOT NULL AND r.result_flag <> '',
-                              CONCAT('（', r.result_flag, '）'), ''))
-                         ORDER BY r.result_id SEPARATOR '；'
-                       ) AS items_text
-                FROM lab_tests t
-                JOIN departments dept ON t.department_id = dept.department_id
-                LEFT JOIN lab_test_results r ON r.test_id = t.test_id
-                LEFT JOIN lab_items li ON li.item_id = r.item_id
-                WHERE t.patient_id = %s AND t.test_status <> '已作废'
-                GROUP BY t.test_id, t.test_no, t.total_fee, t.test_status, t.completed_at, dept.department_name
-                ORDER BY t.test_id DESC
-                """,
-                (patient["patient_id"],),
-            )
-    schedules = fetch_all(
-        _SCHEDULE_SELECT_SQL + """
-        WHERE s.work_date = CURDATE() AND s.schedule_status = '正常'
-        ORDER BY dept.department_name, s.shift_type
-        """
-    )
-    return render_template("kiosk.html", id_card=id_card, patient=patient,
-                           today_regs=today_regs, schedules=schedules, success=None,
-                           reg_history=reg_history, pay_history=pay_history, reports=reports)
-
-
-# ============================================================
 # 医生排班管理
 # ============================================================
 
@@ -1256,7 +887,7 @@ def schedules():
     user = current_user()
     # 医生角色只能维护自己的排班：取当前登录用户对应的医生档案
     is_doctor = user["role_code"] == "DOCTOR"
-    # 只有管理员和医生可操作排班；挂号员等其他角色仅可查看
+    # 只有管理员和医生可操作排班；收费人员等其他角色仅可查看
     can_edit = user["role_code"] in ("ADMIN", "DOCTOR")
     my_doctor_id = None
     my_doctor_name = None
@@ -1362,22 +993,20 @@ def schedules():
                 if not _schedule_belongs_to_me(schedule_id):
                     flash("只能操作自己的排班。", "error")
                     return redirect(url_for("schedules"))
-                # 删除前先查引用。doctor_schedules 只被 appointments 一张表通过
-                # fk_appt_schedule 引用，直接 DELETE 落库时只会收到 1451，提示是
-                # 泛泛的「该数据已被其它业务记录引用（挂号、处方或收费等）」，
-                # 用户根本不知道到底卡在哪、该怎么办。这里先点清是**几条预约**，
-                # 并给出可执行的下一步（先取消/处理预约，或改用「停诊」）。
-                used = fetch_one(
-                    "SELECT COUNT(*) AS n FROM appointments WHERE schedule_id = %s",
+                # 号源台账保护：已有挂号记录的排班不允许删除（否则历史挂号会指向
+                # 一条消失的排班）。registrations 没有 schedule_id，按「医生 + 挂号日期」
+                # 反查是否存在同医生同日期的挂号（与排班的 work_date 对应）。
+                reg_used = fetch_one(
+                    """SELECT COUNT(*) AS n FROM registrations r
+                       JOIN doctor_schedules s ON s.schedule_id = %s
+                       WHERE r.doctor_id = s.doctor_id AND r.reg_date = s.work_date""",
                     (schedule_id,),
                 )
-                used_n = int(used["n"]) if used else 0
-                if used_n:
+                reg_n = int(reg_used["n"]) if reg_used else 0
+                if reg_n:
                     flash(
-                        "该排班已被 %d 条预约引用，不能删除。"
-                        "请先在「预约管理」中取消或处理这些预约；"
-                        "若只是暂时不出诊，可直接在列表里点「停诊」。"
-                        % used_n,
+                        "该排班已被 %d 条挂号记录引用，不能删除；"
+                        "若只是暂时不出诊，可直接在列表里点「停诊」。" % reg_n,
                         "error",
                     )
                     return redirect(url_for("schedules"))

@@ -95,6 +95,15 @@ def clean(cur):
                 (ACCEPT_REG_PREFIX + "%",))
     acc_regs = [r[0] for r in cur.fetchall()]
 
+    # 补：验收患者名下「非 ACCEPT 前缀」的挂号也要一并收进来
+    # （例如演示/联调时在前端给该患者新挂的号）。否则漏删会导致下面
+    # DELETE FROM patients 触发外键约束而整单失败。
+    if acc_pid:
+        cur.execute("SELECT registration_id FROM registrations WHERE patient_id = %s", (acc_pid,))
+        for (rid,) in cur.fetchall():
+            if rid not in acc_regs:
+                acc_regs.append(rid)
+
     reg_filter = ""
     reg_args = ()
     if acc_regs:

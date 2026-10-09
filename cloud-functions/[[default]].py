@@ -2581,6 +2581,11 @@ def medical_records():
             """,
             (edit_id,),
         )
+        # 归属校验：医生只能查看/编辑自己书写的病历（GET 也要拦，避免内容泄露）
+        if editing and not is_admin:
+            if not my_doctor_id or editing["doctor_id"] != my_doctor_id:
+                flash("只能查看与编辑自己书写的病历。", "error")
+                return redirect(url_for("medical_records"))
 
     # ---- 待书写病历的挂号记录：医生只看自己的，管理员看全部 ----
     if is_admin:

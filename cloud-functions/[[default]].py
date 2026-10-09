@@ -37,8 +37,8 @@ import mysql.connector.errors
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from db import (call_proc, close_request_connections, execute, execute_atomic,
-                fetch_all, fetch_one, get_connection)
+from db import (call_proc, call_proc_scalar, close_request_connections, execute,
+                execute_atomic, fetch_all, fetch_one, get_connection)
 
 
 # 模板与静态资源目录按「本文件所在目录」定位，
@@ -280,13 +280,14 @@ def login_required(view_func):
 PERMISSIONS = {
     "REGISTRAR": {"dashboard", "patients", "registrations", "schedules", "appointments"},
     "REGMACHINE": {"kiosk"},
-    "DOCTOR": {"dashboard", "schedules", "prescriptions"},
+    # 医生：排班 + 处方 + 门诊病历（病历页内可顺带开具检验申请）
+    "DOCTOR": {"dashboard", "schedules", "prescriptions", "medical_records"},
     "CASHIER": {"dashboard", "payments"},
     "LAB_TECH": {"dashboard", "lab"},
     "PHARMACIST": {"dashboard", "dispense", "medicines"},
     "ADMIN": {"dashboard", "patients", "registrations", "schedules", "prescriptions",
               "payments", "medicines", "reports", "export", "codes", "vitals", "lab",
-              "diagnosis", "dispense", "users"},
+              "diagnosis", "medical_records", "dispense", "users"},
 }
 
 
@@ -1947,6 +1948,342 @@ def vitals():
             (user["user_name"],),
         )
     return render_template("vitals.html", patients=patients, regs=regs, rows=rows)
+
+
+# ============================================================
+# 门诊病历管理（医生书写患者就诊情况 / 同时开具检验申请）
+# ============================================================
+
+@app.route("/medical_records", methods=["GET", "POST"])
+@login_required
+@permission_required("medical_records")
+def medical_records():
+    """门诊病历：按「一次就诊」一份病历书写。
+
+    * 医生：只能为自己接诊的挂号记录写病历，且只能改自己的病历；
+    * 管理员：可查看全部病历（不能代写，避免越权录入医疗文书）。
+    """
+    user = current_user()
+    is_admin = user["role_code"] == "ADMIN"
+    my_doctor_id = None
+    if not is_admin:
+        row = fetch_one(
+            "SELECT doctor_id FROM doctors WHERE user_id = %s", (user["user_id"],)
+        )
+        my_doctor_id = row["doctor_id"] if row else None
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        try:
+            if action == "save":
+                registration_id = int(request.form["registration_id"])
+                record_id = int(request.form.get("record_id") or 0)
+
+                # 归属校验：医生只能写自己接诊的病历
+                reg = fetch_one(
+                    "SELECT doctor_id FROM registrations WHERE registration_id = %s",
+                    (registration_id,),
+                )
+                if not reg:
+                    flash("挂号记录不存在，无法书写病历。", "error")
+                    return redirect(url_for("medical_records"))
+                if not is_admin and reg["doctor_id"] != my_doctor_id:
+                    flash("只能为自己接诊的患者书写病历。", "error")
+                    return redirect(url_for("medical_records"))
+
+                # 更新时也要校验病历归属，防止改到别人的病历
+                if record_id:
+                    owner = fetch_one(
+                        "SELECT doctor_id FROM medical_records WHERE record_id = %s",
+                        (record_id,),
+                    )
+                    if not owner:
+                        flash("病历不存在或已被删除。", "error")
+                        return redirect(url_for("medical_records"))
+                    if not is_admin and owner["doctor_id"] != my_doctor_id:
+                        flash("只能修改自己书写的病历。", "error")
+                        return redirect(url_for("medical_records"))
+
+                new_id = call_proc_scalar(
+                    "sp_save_medical_record",
+                    [
+                        record_id,
+                        registration_id,
+                        request.form.get("chief_complaint") or None,
+                        request.form.get("present_illness") or None,
+                        request.form.get("past_history") or None,
+                        request.form.get("physical_exam") or None,
+                        request.form.get("diagnosis") or None,
+                        request.form.get("diagnosis_code") or None,
+                        request.form.get("advice") or None,
+                        request.form.get("record_status") or "草稿",
+                    ],
+                    # out_index 是 OUT 参数在**签名里的序号**（1 起算）。
+                    # sp_save_medical_record 是「10 个 IN + 第 11 个 OUT」，
+                    # 所以这里必须是 11。写成 10 会把 @his_out 塞到第 10 个
+                    # 形参（p_record_status）上，MySQL 报
+                    #   1414 OUT or INOUT argument 11 ... is not a variable。
+                    # 该值等于「输入参数个数 + 1」，即默认值，显式写出是为可读性。
+                    out_index=11,
+                )
+
+                # 同一表单内可顺带开具检验申请（复用既有 sp_add_lab_test，
+                # registration_id 直接带上，使检验与本次就诊挂钩）
+                item_ids = request.form.getlist("item_ids")
+                if item_ids:
+                    dept_id = fetch_one(
+                        "SELECT department_id FROM registrations WHERE registration_id = %s",
+                        (registration_id,),
+                    )["department_id"]
+                    call_proc(
+                        "sp_add_lab_test",
+                        [
+                            make_no("LAB"),
+                            int(request.form["mr_patient_id"]),
+                            int(request.form["mr_doctor_id"]),
+                            dept_id,
+                            registration_id,
+                            request.form.get("sample_type") or "血液",
+                            ",".join(item_ids),
+                            int(user["user_id"]),
+                        ],
+                    )
+                    flash("病历已保存，并已开具 %d 项检验申请。" % len(item_ids), "success")
+                else:
+                    flash("病历已保存。", "success")
+            elif action == "delete":
+                record_id = int(request.form["record_id"])
+                owner = fetch_one(
+                    "SELECT doctor_id FROM medical_records WHERE record_id = %s", (record_id,)
+                )
+                if not owner:
+                    flash("病历不存在或已被删除。", "error")
+                    return redirect(url_for("medical_records"))
+                if not is_admin and owner["doctor_id"] != my_doctor_id:
+                    flash("只能删除自己书写的病历。", "error")
+                    return redirect(url_for("medical_records"))
+                execute("DELETE FROM medical_records WHERE record_id = %s", (record_id,))
+                flash("病历已删除。", "success")
+        except mysql.connector.errors.IntegrityError as error:
+            flash(handle_integrity_error(error), "error")
+        except mysql.connector.Error as error:
+            flash(handle_db_error(error), "error")
+        except (KeyError, TypeError, ValueError) as error:
+            flash(handle_param_error(error, "病历参数不完整，请检查后重试。"), "error")
+        return redirect(url_for("medical_records"))
+
+    # ---- 编辑：带出指定病历 ----
+    edit_id = request.args.get("record_id")
+    editing = None
+    if edit_id:
+        editing = fetch_one(
+            """
+            SELECT mr.*, p.patient_name, p.patient_no, p.gender, p.birth_date,
+                   p.blood_type, p.medical_history, p.phone,
+                   u.user_name AS doctor_name, dept.department_name, r.reg_no, r.reg_type
+            FROM medical_records mr
+            JOIN patients p ON mr.patient_id = p.patient_id
+            JOIN doctors d ON mr.doctor_id = d.doctor_id
+            JOIN users u ON d.user_id = u.user_id
+            JOIN departments dept ON mr.department_id = dept.department_id
+            JOIN registrations r ON mr.registration_id = r.registration_id
+            WHERE mr.record_id = %s
+            """,
+            (edit_id,),
+        )
+
+    # ---- 待书写病历的挂号记录：医生只看自己的，管理员看全部 ----
+    if is_admin:
+        pending = fetch_all(
+            """
+            SELECT r.registration_id, r.reg_no, r.reg_date, r.reg_type, r.visit_status,
+                   p.patient_id, p.patient_no, p.patient_name, p.gender,
+                   u.user_name AS doctor_name, dept.department_name,
+                   mr.record_id, mr.record_status
+            FROM registrations r
+            JOIN patients p ON r.patient_id = p.patient_id
+            JOIN doctors d ON r.doctor_id = d.doctor_id
+            JOIN users u ON d.user_id = u.user_id
+            JOIN departments dept ON r.department_id = dept.department_id
+            LEFT JOIN medical_records mr ON mr.registration_id = r.registration_id
+            WHERE r.visit_status <> '已退号'
+            ORDER BY r.reg_date DESC, r.registration_id DESC
+            LIMIT 100
+            """
+        )
+    else:
+        pending = fetch_all(
+            """
+            SELECT r.registration_id, r.reg_no, r.reg_date, r.reg_type, r.visit_status,
+                   p.patient_id, p.patient_no, p.patient_name, p.gender,
+                   u.user_name AS doctor_name, dept.department_name,
+                   mr.record_id, mr.record_status
+            FROM registrations r
+            JOIN patients p ON r.patient_id = p.patient_id
+            JOIN doctors d ON r.doctor_id = d.doctor_id
+            JOIN users u ON d.user_id = u.user_id
+            JOIN departments dept ON r.department_id = dept.department_id
+            LEFT JOIN medical_records mr ON mr.registration_id = r.registration_id
+            WHERE r.visit_status <> '已退号' AND r.doctor_id = %s
+            ORDER BY r.reg_date DESC, r.registration_id DESC
+            LIMIT 100
+            """,
+            (my_doctor_id,),
+        )
+
+    # ---- 病历列表 ----
+    keyword = (request.args.get("keyword") or "").strip()
+    if is_admin:
+        rows = fetch_all(
+            """
+            SELECT mr.record_id, mr.record_no, mr.visit_date, mr.diagnosis, mr.diagnosis_code,
+                   mr.record_status, p.patient_name, p.patient_no,
+                   u.user_name AS doctor_name, dept.department_name
+            FROM medical_records mr
+            JOIN patients p ON mr.patient_id = p.patient_id
+            JOIN doctors d ON mr.doctor_id = d.doctor_id
+            JOIN users u ON d.user_id = u.user_id
+            JOIN departments dept ON mr.department_id = dept.department_id
+            WHERE (%s = '' OR p.patient_name LIKE CONCAT('%%', %s, '%%')
+                   OR mr.record_no LIKE CONCAT('%%', %s, '%%')
+                   OR mr.diagnosis LIKE CONCAT('%%', %s, '%%'))
+            ORDER BY mr.visit_date DESC, mr.record_id DESC
+            LIMIT 200
+            """,
+            (keyword, keyword, keyword, keyword),
+        )
+    else:
+        rows = fetch_all(
+            """
+            SELECT mr.record_id, mr.record_no, mr.visit_date, mr.diagnosis, mr.diagnosis_code,
+                   mr.record_status, p.patient_name, p.patient_no,
+                   u.user_name AS doctor_name, dept.department_name
+            FROM medical_records mr
+            JOIN patients p ON mr.patient_id = p.patient_id
+            JOIN doctors d ON mr.doctor_id = d.doctor_id
+            JOIN users u ON d.user_id = u.user_id
+            JOIN departments dept ON mr.department_id = dept.department_id
+            WHERE mr.doctor_id = %s
+              AND (%s = '' OR p.patient_name LIKE CONCAT('%%', %s, '%%')
+                   OR mr.record_no LIKE CONCAT('%%', %s, '%%')
+                   OR mr.diagnosis LIKE CONCAT('%%', %s, '%%'))
+            ORDER BY mr.visit_date DESC, mr.record_id DESC
+            LIMIT 200
+            """,
+            (my_doctor_id, keyword, keyword, keyword, keyword),
+        )
+
+    # ---- 本次就诊已开具的检验单 ----
+    lab_tests_of_reg = []
+    if editing:
+        lab_tests_of_reg = fetch_all(
+            """
+            SELECT t.test_id, t.test_no, t.test_status, t.sample_type, t.ordered_at,
+                   GROUP_CONCAT(li.item_name ORDER BY li.item_id SEPARATOR '、') AS items,
+                   GROUP_CONCAT(li.price ORDER BY li.item_id SEPARATOR ',') AS prices
+            FROM lab_tests t
+            LEFT JOIN lab_test_results r ON r.test_id = t.test_id
+            LEFT JOIN lab_items li ON r.item_id = li.item_id
+            WHERE t.registration_id = %s
+            GROUP BY t.test_id
+            ORDER BY t.test_id DESC
+            """,
+            (editing["registration_id"],),
+        )
+
+    lab_items = fetch_all(
+        "SELECT item_id, item_code, item_name, item_category, unit, price "
+        "FROM lab_items WHERE status = '启用' ORDER BY item_category, item_id"
+    )
+    stats = {
+        "total": fetch_one("SELECT COUNT(*) v FROM medical_records")["v"],
+        "archived": fetch_one("SELECT COUNT(*) v FROM medical_records WHERE record_status = '已归档'")["v"],
+        "draft": fetch_one("SELECT COUNT(*) v FROM medical_records WHERE record_status = '草稿'")["v"],
+        "today": fetch_one("SELECT COUNT(*) v FROM medical_records WHERE visit_date = CURDATE()")["v"],
+    }
+    return render_template(
+        "medical_records.html",
+        pending=pending, rows=rows, editing=editing, keyword=keyword,
+        lab_items=lab_items, lab_tests_of_reg=lab_tests_of_reg, stats=stats,
+        is_admin=is_admin, today=datetime.now().strftime("%Y-%m-%d"),
+    )
+
+
+@app.route("/medical_records/<int:record_id>/print", methods=["GET"])
+@login_required
+@permission_required("medical_records")
+def medical_record_print(record_id):
+    """病历详情（可打印）。医生仅能查看自己书写的病历。"""
+    user = current_user()
+    is_admin = user["role_code"] == "ADMIN"
+    record = fetch_one(
+        """
+        SELECT mr.*, p.patient_name, p.patient_no, p.gender, p.birth_date, p.id_card,
+               p.phone, p.address, p.blood_type, p.medical_history,
+               u.user_name AS doctor_name, d.title, d.doctor_no, d.specialty,
+               dept.department_name, r.reg_no, r.reg_type, r.reg_fee
+        FROM medical_records mr
+        JOIN patients p ON mr.patient_id = p.patient_id
+        JOIN doctors d ON mr.doctor_id = d.doctor_id
+        JOIN users u ON d.user_id = u.user_id
+        JOIN departments dept ON mr.department_id = dept.department_id
+        JOIN registrations r ON mr.registration_id = r.registration_id
+        WHERE mr.record_id = %s
+        """,
+        (record_id,),
+    )
+    if not record:
+        flash("病历不存在。", "error")
+        return redirect(url_for("medical_records"))
+    if not is_admin:
+        me = fetch_one("SELECT doctor_id FROM doctors WHERE user_id = %s", (user["user_id"],))
+        if not me or record["doctor_id"] != me["doctor_id"]:
+            flash("只能查看自己书写的病历。", "error")
+            return redirect(url_for("medical_records"))
+
+    lab_tests = fetch_all(
+        """
+        SELECT t.test_id, t.test_no, t.test_status, t.sample_type, t.ordered_at,
+               GROUP_CONCAT(CONCAT(li.item_name, '(', IFNULL(r.result_value,'未出'), ')')
+                            ORDER BY li.item_id SEPARATOR '；') AS items
+        FROM lab_tests t
+        LEFT JOIN lab_test_results r ON r.test_id = t.test_id
+        LEFT JOIN lab_items li ON r.item_id = li.item_id
+        WHERE t.registration_id = %s
+        GROUP BY t.test_id ORDER BY t.test_id
+        """,
+        (record["registration_id"],),
+    )
+    prescriptions = fetch_all(
+        """
+        SELECT p.prescription_no, p.prescription_status, p.total_amount, p.prescribe_date,
+               GROUP_CONCAT(CONCAT(m.medicine_name, '×', pi.quantity)
+                            ORDER BY pi.item_id SEPARATOR '、') AS items
+        FROM prescriptions p
+        LEFT JOIN prescription_items pi ON pi.prescription_id = p.prescription_id
+        LEFT JOIN medicines m ON pi.medicine_id = m.medicine_id
+        WHERE p.registration_id = %s
+        GROUP BY p.prescription_id ORDER BY p.prescription_id
+        """,
+        (record["registration_id"],),
+    )
+    # 同一患者的历次就诊
+    history = fetch_all(
+        """
+        SELECT mr.record_id, mr.record_no, mr.visit_date, mr.diagnosis, mr.record_status,
+               u.user_name AS doctor_name, dept.department_name
+        FROM medical_records mr
+        JOIN doctors d ON mr.doctor_id = d.doctor_id
+        JOIN users u ON d.user_id = u.user_id
+        JOIN departments dept ON mr.department_id = dept.department_id
+        WHERE mr.patient_id = %s
+        ORDER BY mr.visit_date DESC, mr.record_id DESC
+        """,
+        (record["patient_id"],),
+    )
+    return render_template("medical_record_print.html", record=record, lab_tests=lab_tests,
+                           prescriptions=prescriptions, history=history,
+                           now=datetime.now().strftime("%Y-%m-%d %H:%M"), is_admin=is_admin)
 
 
 # ============================================================

@@ -8,6 +8,28 @@
   </div>
 </div>
 
+{# 今日收费汇总：收费金额只统计「已收费」，退费单独列出，净额 = 收费 − 退费。
+   这样总计不会把已退费的钱再算进来（与报表页 v_daily_payment 口径一致）。 #}
+<div class="stat-grid">
+  <div class="stat-card panel stat">
+    <span>今日收费笔数</span>
+    <strong>{{ today_summary.charge_count or 0 }}</strong>
+  </div>
+  <div class="stat-card panel stat">
+    <span>今日收费金额（元）</span>
+    <strong>{{ '%.2f'|format(today_summary.charge_amount or 0) }}</strong>
+  </div>
+  <div class="stat-card panel stat">
+    <span>今日退费金额（元）</span>
+    <strong>{{ '%.2f'|format(today_summary.refund_amount or 0) }}</strong>
+  </div>
+  <div class="stat-card panel stat">
+    <span>今日净收入（元）</span>
+    <strong>{{ '%.2f'|format(today_summary.net_amount or 0) }}</strong>
+  </div>
+</div>
+<p class="hint">统计日期：{{ today }}；收费金额不含已退费记录，净收入 = 收费金额 − 退费金额。</p>
+
 <div class="panel">
   <h2>待收费处方（{{ waiting|length }} 张）</h2>
   <div class="table-wrap small">
@@ -43,7 +65,6 @@
   </div>
 </div>
 
-<div class="panel">
 <div class="panel">
   <h2>待收费检验单（{{ lab_waiting|length }} 张）</h2>
   <div class="table-wrap small">

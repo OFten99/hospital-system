@@ -1713,9 +1713,27 @@ def payments():
         ORDER BY pm.payment_id DESC LIMIT 50
         """
     )
+    # ---- 今日收费汇总（口径 = 只算「已收费」，退费单独列，净额 = 收费 - 退费）----
+    # 与 v_daily_payment 视图保持一致：payments.pay_status 为「已退费」的行
+    # 金额不再计入收费总计，只在「退费金额」里体现。
+    today = datetime.now().strftime("%Y-%m-%d")
+    today_summary = fetch_one(
+        """
+        SELECT
+          SUM(CASE WHEN pay_status = '已收费' THEN 1 ELSE 0 END) AS charge_count,
+          COALESCE(SUM(CASE WHEN pay_status = '已收费' THEN pay_amount ELSE 0 END), 0) AS charge_amount,
+          SUM(CASE WHEN pay_status = '已退费' THEN 1 ELSE 0 END) AS refund_count,
+          COALESCE(SUM(CASE WHEN pay_status = '已退费' THEN pay_amount ELSE 0 END), 0) AS refund_amount
+        FROM payments
+        WHERE DATE(pay_time) = %s
+        """,
+        (today,),
+    )
+    today_summary["net_amount"] = today_summary["charge_amount"] - today_summary["refund_amount"]
     return render_template(
         "payments.html", waiting=waiting, charged=charged,
         lab_waiting=lab_waiting, lab_charged=lab_charged,
+        today_summary=today_summary, today=today,
     )
 
 
@@ -1905,11 +1923,39 @@ def vitals():
         action = request.form.get("action")
         if action == "add":
             try:
+                # ---- 关联挂号校验 ----
+                # 下拉里只列「待就诊 / 就诊中」，但请求可由客户端伪造，
+                # 已退号 / 已就诊 / 不存在的挂号都要在这里挡掉。
+                registration_id = (
+                    int(request.form["registration_id"])
+                    if request.form.get("registration_id") else None
+                )
+                if registration_id is not None:
+                    reg = fetch_one(
+                        """
+                        SELECT r.registration_id, r.patient_id, r.visit_status
+                        FROM registrations r WHERE r.registration_id = %s
+                        """,
+                        (registration_id,),
+                    )
+                    if not reg:
+                        flash("关联的挂号记录不存在，体征未保存。", "error")
+                        return redirect(url_for("vitals"))
+                    if reg["visit_status"] not in ("待就诊", "就诊中"):
+                        flash(
+                            "该挂号当前状态为「%s」，不能关联记录体征（已退号/已就诊的挂号不可再挂）。"
+                            % reg["visit_status"], "error",
+                        )
+                        return redirect(url_for("vitals"))
+                    if int(reg["patient_id"]) != int(request.form["patient_id"]):
+                        flash("所选患者与关联的挂号记录不是同一位患者，请重新选择。", "error")
+                        return redirect(url_for("vitals"))
+
                 call_proc(
                     "sp_add_vital_sign",
                     [
                         int(request.form["patient_id"]),
-                        int(request.form["registration_id"]) if request.form.get("registration_id") else None,
+                        registration_id,
                         int(user["user_id"]),
                         _form_num("temperature", float),
                         _form_num("systolic_pressure"),
@@ -1933,13 +1979,22 @@ def vitals():
     patients = fetch_all(
         "SELECT patient_id, patient_no, patient_name, phone FROM patients ORDER BY patient_id"
     )
+    # ---- 「关联挂号（可选）」下拉候选 ----
+    # 同 lab_tests：只列「待就诊 / 就诊中」，已退号（已退费）与已就诊（门诊已结束）
+    # 的挂号不应再挂新的体征记录。附带日期 / 科室 / 医生，避免同名患者看起来重复。
     regs = fetch_all(
         """
-        SELECT r.registration_id, r.reg_no, r.patient_id, p.patient_name, r.visit_status
+        SELECT r.registration_id, r.reg_no, r.patient_id, p.patient_name,
+               r.reg_date, r.visit_status,
+               d.department_name,
+               COALESCE(du.user_name, '未指定医生') AS doctor_name
         FROM registrations r
         JOIN patients p ON r.patient_id = p.patient_id
+        LEFT JOIN departments d ON r.department_id = d.department_id
+        LEFT JOIN doctors doc ON r.doctor_id = doc.doctor_id
+        LEFT JOIN users du ON doc.user_id = du.user_id
         WHERE r.visit_status IN ('待就诊', '就诊中')
-        ORDER BY r.registration_id
+        ORDER BY r.reg_date DESC, r.registration_id DESC
         """
     )
     if user["role_code"] == "ADMIN":
@@ -2345,6 +2400,39 @@ def lab_tests():
                     doctor_id = int(request.form["doctor_id"])
                     department_id = int(request.form["department_id"])
 
+                # ---- 关联挂号校验 ----
+                # 下拉里只列「待就诊 / 就诊中」，但请求是客户端发来的，
+                # 直接构造 POST 仍可塞一个已退号（或不存在）的挂号号过来。
+                # 已退号的挂号对应的检验申请是不该存在的，这里必须挡掉，
+                # 否则会在「已退号」的就诊上挂出一张检验单。
+                registration_id = (
+                    int(request.form["registration_id"])
+                    if request.form.get("registration_id") else None
+                )
+                if registration_id is not None:
+                    reg = fetch_one(
+                        """
+                        SELECT r.registration_id, r.patient_id, r.doctor_id, r.visit_status
+                        FROM registrations r WHERE r.registration_id = %s
+                        """,
+                        (registration_id,),
+                    )
+                    if not reg:
+                        flash("关联的挂号记录不存在，检验申请未开具。", "error")
+                        return redirect(url_for("lab_tests"))
+                    if reg["visit_status"] not in ("待就诊", "就诊中"):
+                        flash(
+                            "该挂号当前状态为「%s」，不能关联开具检验申请（已退号/已就诊的挂号不可再开单）。"
+                            % reg["visit_status"], "error",
+                        )
+                        return redirect(url_for("lab_tests"))
+                    if int(reg["patient_id"]) != int(request.form["patient_id"]):
+                        flash("所选患者与关联的挂号记录不是同一位患者，请重新选择。", "error")
+                        return redirect(url_for("lab_tests"))
+                    if reg["doctor_id"] is not None and int(reg["doctor_id"]) != int(doctor_id):
+                        flash("只能为本次接诊医生名下的挂号开具检验申请。", "error")
+                        return redirect(url_for("lab_tests"))
+
                 call_proc(
                     "sp_add_lab_test",
                     [
@@ -2352,7 +2440,7 @@ def lab_tests():
                         int(request.form["patient_id"]),
                         doctor_id,
                         department_id,
-                        int(request.form["registration_id"]) if request.form.get("registration_id") else None,
+                        registration_id,
                         request.form.get("sample_type") or "血液",
                         ",".join(request.form.getlist("item_ids")),
                         int(user["user_id"]),
@@ -2417,15 +2505,33 @@ def lab_tests():
             (user["user_id"],),
         )
     items = fetch_all("SELECT * FROM lab_items WHERE status = '启用' ORDER BY item_category, item_id")
-    regs = fetch_all(
-        """
-        SELECT r.registration_id, r.reg_no, r.patient_id, p.patient_name
+    # ---- 「关联挂号（可选）」下拉候选 ----
+    # 只列「未结束」的就诊（待就诊 / 就诊中）：
+    #   * 已退号 = 这笔挂号已作废并退费，不应再开检验；
+    #   * 已就诊 = 该次门诊已结束，再补开检验属于事后补单，不在本页范围。
+    # ⚠️ 同一个患者可能有多条未结束的挂号（不同日期 / 不同科室 / 不同医生），
+    #    只显示「号别｜姓名」会看起来像重复项，所以这里额外带上
+    #    就诊日期 + 科室 + 医生，前端拼成「挂号号 │ 姓名（日期 科室 医生）」。
+    # 医生端只列自己接诊的挂号，避免给别人的患者开单。
+    reg_sql = """
+        SELECT r.registration_id, r.reg_no, r.patient_id, p.patient_name,
+               r.reg_date, r.visit_status,
+               d.department_name,
+               COALESCE(du.user_name, '未指定医生') AS doctor_name
         FROM registrations r
         JOIN patients p ON r.patient_id = p.patient_id
+        LEFT JOIN departments d ON r.department_id = d.department_id
+        LEFT JOIN doctors doc ON r.doctor_id = doc.doctor_id
+        LEFT JOIN users du ON doc.user_id = du.user_id
         WHERE r.visit_status IN ('待就诊', '就诊中')
-        ORDER BY r.registration_id
-        """
-    )
+    """
+    reg_args = ()
+    if my_doctor:
+        reg_sql += " AND r.doctor_id = %s"
+        reg_args = (my_doctor["doctor_id"],)
+    # 新的排前面（同日按挂号号倒序），患者查看时更符合直觉
+    reg_sql += " ORDER BY r.reg_date DESC, r.registration_id DESC"
+    regs = fetch_all(reg_sql, reg_args)
     return render_template(
         "lab_tests.html",
         summary=summary,

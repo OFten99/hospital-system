@@ -33,7 +33,7 @@
       <thead>
         <tr>
           <th>项目分类</th><th>项目名称</th><th>单位</th><th>参考范围</th>
-          <th>结果值</th><th>结果标志</th><th>备注</th>
+          <th>结果值</th><th>备注</th>
         </tr>
       </thead>
       <tbody>
@@ -67,18 +67,6 @@
           </td>
           <td>
             {% if can_edit %}
-            <select name="flag_{{ it.result_id }}" id="flag_{{ it.result_id }}">
-              {% for f in ['正常', '偏高', '偏低', '异常'] %}
-              <option value="{{ f }}" {{ 'selected' if it.result_flag == f else '' }}>{{ f }}</option>
-              {% endfor %}
-            </select>
-            <span class="hint" id="hint_{{ it.result_id }}" style="display:block;font-size:11px"></span>
-            {% elif it.result_value %}
-            <span class="badge {{ 'warn' if it.result_flag != '正常' else '' }}">{{ it.result_flag }}</span>
-            {% else %}-{% endif %}
-          </td>
-          <td>
-            {% if can_edit %}
             <input type="text" name="note_{{ it.result_id }}" value="{{ it.result_note or '' }}" maxlength="200">
             {% else %}{{ it.result_note or '-' }}{% endif %}
           </td>
@@ -90,7 +78,7 @@
   {% if can_edit %}
     <div class="form-actions">
       <button type="submit">保存检验结果</button>
-      <span class="hint">保存后状态自动流转：全部项目出结果即"已完成"；有参考范围的项目由系统自动判定结果</span>
+      <span class="hint">保存后状态自动流转：全部项目出结果即"已完成"；结果标志由系统按参考范围自动判定</span>
     </div>
   </form>
   {% endif %}
@@ -116,27 +104,18 @@ function judgeText(range, val) {
 function refreshAuto(inp) {
   var rid = inp.dataset.rid, range = inp.dataset.range, val = inp.value;
   var auto = document.getElementById('auto_' + rid);
-  var hint = document.getElementById('hint_' + rid);
-  var sel = document.getElementById('flag_' + rid);
   if (val === '') {
-    // 输入前：禁止调整结果标志
-    sel.disabled = true;
     auto.style.display = 'none';
-    hint.textContent = '输入结果值后由系统自动判定';
     return;
   }
   var flag = judgeRange(range, val);
   if (flag === null) flag = judgeText(range, val);
   if (flag) {
-    sel.disabled = true;
     auto.style.display = 'inline-block';
     auto.textContent = '自动判定：' + flag;
     auto.className = 'badge' + (flag === '正常' ? '' : ' warn') + ' lab-auto';
-    hint.textContent = /[-~]/.test(range) ? '系统按参考范围自动判定' : '定性项目按参考值比对自动判定';
   } else {
     auto.style.display = 'none';
-    sel.disabled = false;
-    hint.textContent = val ? '无参考范围，请手动选择' : '';
   }
 }
 document.querySelectorAll('.lab-value').forEach(function (inp) {

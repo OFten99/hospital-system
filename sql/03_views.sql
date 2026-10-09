@@ -9,13 +9,17 @@ DROP VIEW IF EXISTS v_daily_payment;
 DROP VIEW IF EXISTS v_doctor_workload;
 
 -- 1. 当日挂号统计视图：按科室统计当日挂号数、普通号/专家号数量与挂号费
+--    口径说明：退号代表挂号费已退还，因此 registration_count / total_fee
+--    等统计量**只统计有效挂号**，退号笔数用 cancelled_count 单独给出。
+--    （2026-10-09 修正：原先 total_fee 把退号的挂号费也累加了进去，
+--      导致看板「挂号费合计」与「今日收费金额」对不上。）
 CREATE VIEW v_today_registrations AS
 SELECT
   d.department_name,
-  COUNT(r.registration_id) AS registration_count,
-  SUM(CASE WHEN r.reg_type = '普通号' THEN 1 ELSE 0 END) AS normal_count,
-  SUM(CASE WHEN r.reg_type = '专家号' THEN 1 ELSE 0 END) AS expert_count,
-  SUM(r.reg_fee) AS total_fee,
+  SUM(CASE WHEN r.visit_status <> '已退号' THEN 1 ELSE 0 END) AS registration_count,
+  SUM(CASE WHEN r.visit_status <> '已退号' AND r.reg_type = '普通号' THEN 1 ELSE 0 END) AS normal_count,
+  SUM(CASE WHEN r.visit_status <> '已退号' AND r.reg_type = '专家号' THEN 1 ELSE 0 END) AS expert_count,
+  COALESCE(SUM(CASE WHEN r.visit_status <> '已退号' THEN r.reg_fee ELSE 0 END), 0) AS total_fee,
   SUM(CASE WHEN r.visit_status = '已退号' THEN 1 ELSE 0 END) AS cancelled_count
 FROM registrations r
 JOIN departments d ON r.department_id = d.department_id

@@ -22,14 +22,16 @@
           {% endfor %}
         </select>
       </div>
-      <div class="field">
+      <div class="field wide">
         <label>关联挂号（可选）</label>
         <select name="registration_id">
           <option value="">不关联</option>
+          {# 同一患者可能有多条未结束的挂号，带上日期 + 科室 + 医生便于区分 #}
           {% for r in regs %}
-          <option value="{{ r.registration_id }}">{{ r.reg_no }}｜{{ r.patient_name }}（{{ r.visit_status }}）</option>
+          <option value="{{ r.registration_id }}">{{ r.reg_no }}｜{{ r.patient_name }}（{{ r.reg_date }} {{ r.department_name or '未指定科室' }} {{ r.doctor_name }} · {{ r.visit_status }}）</option>
           {% endfor %}
         </select>
+        <p class="hint">只显示「待就诊 / 就诊中」的就诊；已退号、已就诊的挂号不可关联。</p>
       </div>
       <div class="field">
         <label>体温（℃）</label>

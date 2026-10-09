@@ -44,28 +44,35 @@
     </tr>
   </table>
 
-  <div class="mr-section"><span class="mr-label">主诉</span><div class="mr-text">{{ record.chief_complaint or '—' }}</div></div>
-  <div class="mr-section"><span class="mr-label">现病史</span><div class="mr-text">{{ record.present_illness or '—' }}</div></div>
-  <div class="mr-section"><span class="mr-label">既往史</span><div class="mr-text">{{ record.past_history or record.medical_history or '—' }}</div></div>
-  <div class="mr-section"><span class="mr-label">体格检查</span><div class="mr-text">{{ record.physical_exam or '—' }}</div></div>
+  <div class="mr-section"><span class="mr-label">主诉</span><div class="mr-text"><span class="mr-txt">{{ record.chief_complaint or '—' }}</span></div></div>
+  <div class="mr-section"><span class="mr-label">现病史</span><div class="mr-text"><span class="mr-txt">{{ record.present_illness or '—' }}</span></div></div>
+  <div class="mr-section"><span class="mr-label">既往史</span><div class="mr-text"><span class="mr-txt">{{ record.past_history or record.medical_history or '—' }}</span></div></div>
+  <div class="mr-section"><span class="mr-label">体格检查</span><div class="mr-text"><span class="mr-txt">{{ record.physical_exam or '—' }}</span></div></div>
   <div class="mr-section mr-key">
     <span class="mr-label">诊断</span>
-    <div class="mr-text">
-      {{ record.diagnosis or '—' }}
-    </div>
+    <div class="mr-text"><span class="mr-txt">{{ record.diagnosis or '—' }}</span></div>
   </div>
-  <div class="mr-section"><span class="mr-label">医嘱</span><div class="mr-text">{{ record.advice or '—' }}</div></div>
+  <div class="mr-section"><span class="mr-label">医嘱</span><div class="mr-text"><span class="mr-txt">{{ record.advice or '—' }}</span></div></div>
 
   {% if lab_tests %}
   <div class="mr-section">
     <span class="mr-label">检验</span>
-    <div class="mr-text">
-      {% if lab_abnormal_count %}
+    <div class="mr-text">{#
+      注意：<div class="mr-text"> 用的 white-space:pre-wrap（为了保留病历正文换行），
+      所以这里的缩进/换行都会被当成真实空白渲染 → 用 Jinja 的 {%- -%} 把标签间的
+      空白全部吃掉，否则「检验」标签下方会出现一大块空白。
+    #}
+      {%- if lab_abnormal_count -%}
       <div class="mr-abn-banner">本次检验共 <strong>{{ lab_tests|length }}</strong> 单，
         检出 <strong class="mr-abn">{{ lab_abnormal_count }}</strong> 项异常指标（见下表红字项）。</div>
-      {% endif %}
-      {% for t in lab_tests %}
+      {%- endif -%}
+      {%- for t in lab_tests -%}
       <table class="mr-sub" style="margin-bottom:8px">
+        {# table-layout:fixed 只认第一行的宽度，而第一行是 colspan=4 的标题行，
+           因此列宽改用 <colgroup> 显式指定，避免「结果」列被挤到换行。 #}
+        <colgroup>
+          <col style="width:26%"><col style="width:40%"><col style="width:22%"><col style="width:12%">
+        </colgroup>
         <thead>
           <tr>
             <th colspan="4">检验单 <code>{{ t.test_no }}</code>
@@ -73,31 +80,31 @@
               <span class="mr-tag">{{ t.test_status }}</span>
             </th>
           </tr>
-          <tr><th style="width:30%">项目</th><th>结果</th><th>参考区间</th><th style="width:14%">标志</th></tr>
+          <tr><th>项目</th><th>结果</th><th>参考区间</th><th>标志</th></tr>
         </thead>
         <tbody>
-          {% for d in lab_results.get(t.test_id, []) %}
-          {% set flag = (d.result_flag or '').strip() %}
-          {% set is_abn = flag and flag != '正常' %}
+          {%- for d in lab_results.get(t.test_id, []) -%}
+          {%- set flag = (d.result_flag or '').strip() -%}
+          {%- set is_abn = flag and flag != '正常' -%}
           <tr {% if is_abn %}class="row-abn"{% endif %}>
             <td>{{ d.item_name }}</td>
             <td {% if is_abn %}class="mr-abn"{% endif %}>
               {{ d.result_value or '未出' }}{% if d.unit %} <span class="muted">{{ d.unit }}</span>{% endif %}
-              {% if is_abn %}<span class="abn-mark">↑</span>{% endif %}
+              {%- if is_abn %}<span class="abn-mark">↑</span>{% endif %}
             </td>
             <td class="muted">{{ d.reference_range or '—' }}</td>
             <td>
-              {% if is_abn %}<span class="abn-badge">{{ flag }}</span>
-              {% elif flag %}<span class="ok-badge">{{ flag }}</span>
-              {% else %}<span class="muted">—</span>{% endif %}
+              {%- if is_abn %}<span class="abn-badge">{{ flag }}</span>
+              {%- elif flag %}<span class="ok-badge">{{ flag }}</span>
+              {%- else %}<span class="muted">—</span>{% endif %}
             </td>
           </tr>
-          {% else %}
+          {%- else -%}
           <tr><td colspan="4" class="muted">尚未录入结果</td></tr>
-          {% endfor %}
+          {%- endfor -%}
         </tbody>
       </table>
-      {% endfor %}
+      {%- endfor -%}
     </div>
   </div>
   {% endif %}
@@ -105,14 +112,16 @@
   {% if prescriptions %}
   <div class="mr-section">
     <span class="mr-label">处方</span>
-    <div class="mr-text">
-      <table class="mr-sub">
+    <div class="mr-text"><table class="mr-sub">
+        <colgroup>
+          <col style="width:26%"><col style="width:44%"><col style="width:16%"><col style="width:14%">
+        </colgroup>
         <thead><tr><th>处方号</th><th>药品</th><th>金额</th><th>状态</th></tr></thead>
         <tbody>
-          {% for p in prescriptions %}
-          <tr><td><code>{{ p.prescription_no }}</code></td><td>{{ p.items or '—' }}</td>
+          {%- for p in prescriptions -%}
+          <tr><td><code>{{ p.prescription_no }}</code></td><td>{{ p.item_names or '—' }}</td>
               <td>{{ '%.2f'|format(p.total_amount) }} 元</td><td>{{ p.prescription_status }}</td></tr>
-          {% endfor %}
+          {%- endfor -%}
         </tbody>
       </table>
     </div>
@@ -162,11 +171,22 @@ table.mr-info th { background:#f3f5f8; width:80px; text-align:left; font-weight:
 table.mr-info th, table.mr-info td { border:1px solid #dfe3ea; padding:6px 9px; }
 .mr-section { display:flex; gap:12px; padding:9px 0; border-bottom:1px dashed #e6e9ef; }
 .mr-label { flex:0 0 72px; font-weight:700; color:#2b3243; }
-.mr-text { flex:1; white-space:pre-wrap; line-height:1.8; font-size:14px; }
+/* min-width:0 是关键：flex 子项默认 min-width:auto，内部宽表格会把整行撑破、
+   溢出到 mr-doc 白卡之外（改用 table-layout:fixed + 溢出滚动兜底）。 */
+.mr-text { flex:1; min-width:0; white-space:pre-wrap; line-height:1.8; font-size:14px; overflow-x:auto; }
+/* 关键：.mr-text 用 pre-wrap 保留病历正文的换行，但源码里 <div class="mr-text"> 与
+   其中的 <table>/<div> 之间的缩进换行会被当成真实空行渲染，表现为「检验/处方」
+   标签下方出现一大块空白。这里让块级子元素恢复 normal，空白即被折叠。 */
+.mr-text > table,
+.mr-text > div { white-space:normal; }
+/* 病历正文（医生手输的多行文本）由 .mr-txt 这个行内 span 单独承载换行，
+   这样既能保留正文里的真实换行，又不会被模板缩进撑出空白。 */
+.mr-txt { white-space:pre-wrap; }
 .mr-key .mr-text { font-weight:600; color:#0b5cad; }
-table.mr-sub { width:100%; border-collapse:collapse; font-size:12px; font-weight:400; }
+table.mr-sub { width:100%; border-collapse:collapse; font-size:12px; font-weight:400; table-layout:fixed; }
 table.mr-sub th { background:#f3f5f8; }
-table.mr-sub th, table.mr-sub td { border:1px solid #dfe3ea; padding:4px 8px; text-align:left; }
+table.mr-sub th, table.mr-sub td { border:1px solid #dfe3ea; padding:4px 8px; text-align:left;
+                                   word-break:break-word; }
 /* 检验异常高亮 */
 .mr-abn-banner { background:#fdecec; border:1px solid #f5c2c2; color:#a11; border-radius:6px;
                  padding:6px 10px; margin-bottom:8px; font-size:13px; }

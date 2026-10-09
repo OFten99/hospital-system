@@ -156,7 +156,7 @@
         {% for t in lab_tests_of_reg %}
         <tr>
           <td><code>{{ t.test_no }}</code></td>
-          <td>{{ t.items or '—' }}</td>
+          <td>{{ t.item_names or '—' }}</td>
           <td>{{ t.sample_type }}</td>
           <td><span class="badge">{{ t.test_status }}</span></td>
           <td>{{ t.ordered_at }}</td>

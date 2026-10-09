@@ -2303,7 +2303,7 @@ def medical_records():
         lab_tests_of_reg = fetch_all(
             """
             SELECT t.test_id, t.test_no, t.test_status, t.sample_type, t.ordered_at,
-                   GROUP_CONCAT(li.item_name ORDER BY li.item_id SEPARATOR '、') AS items,
+                   GROUP_CONCAT(li.item_name ORDER BY li.item_id SEPARATOR '、') AS item_names,
                    GROUP_CONCAT(li.price ORDER BY li.item_id SEPARATOR ',') AS prices
             FROM lab_tests t
             LEFT JOIN lab_test_results r ON r.test_id = t.test_id
@@ -2403,7 +2403,7 @@ def medical_record_print(record_id):
         """
         SELECT p.prescription_no, p.prescription_status, p.total_amount, p.prescribe_date,
                GROUP_CONCAT(CONCAT(m.medicine_name, '×', pi.quantity)
-                            ORDER BY pi.item_id SEPARATOR '、') AS items
+                            ORDER BY pi.item_id SEPARATOR '、') AS item_names
         FROM prescriptions p
         LEFT JOIN prescription_items pi ON pi.prescription_id = p.prescription_id
         LEFT JOIN medicines m ON pi.medicine_id = m.medicine_id

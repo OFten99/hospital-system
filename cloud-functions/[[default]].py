@@ -398,6 +398,36 @@ _UNIQUE_FIELD_HINTS = {
     "test_no": "检验单号",
     "uk_schedule_doctor_date": "该医生当天该班次的排班",
     "PRIMARY": "主键",
+    # 下面两个是复合/外键式唯一索引，报错文本里同样只给索引名，
+    # 不登记就会掉进「数据重复：该记录的唯一字段已被占用」这句泛泛的提示。
+    "user_id": "该账号（每个登录账号只能建一份医生档案）",
+    "uk_test_item": "该检验单的这个检验项目",
+}
+
+# 列名 -> 中文名，配合 errno 1048（Column 'x' cannot be null）。
+# 这里只收「表单里容易留空、但库里 NOT NULL」的列，重点是 users.phone：
+# 注册账号页的联系电话没有加 required，留空就会触发 1048。
+# 忘了登记的列会退化成「有必填项未填写」，不至于再冒出看不懂的套话。
+_NOT_NULL_FIELD_HINTS = {
+    "phone": "联系电话",
+    "user_no": "工号",
+    "user_name": "姓名",
+    "username": "登录名",
+    "password_hash": "密码",
+    "gender": "性别",
+    "role_id": "角色",
+    "patient_name": "患者姓名",
+    "patient_no": "病历号",
+    "id_card": "身份证号",
+    "doctor_no": "医生工号",
+    "consultation_fee": "挂号费",
+    "title": "职称",
+    "medicine_code": "药品编码",
+    "item_code": "检验项目编码",
+    "reg_no": "挂号单号",
+    "prescription_no": "处方号",
+    "payment_no": "收费单号",
+    "test_no": "检验单号",
 }
 
 
@@ -419,6 +449,20 @@ def handle_integrity_error(error):
         if label:
             return f"{label}已存在，请更换后重试。"
         return "数据重复：该记录的唯一字段已被占用，请检查后重试。"
+
+    # 1048：NOT NULL 列被写入了 NULL。**这一条是最容易踩到的**：
+    # 表单里某个「看起来可以不填」的字段，在库里其实是 NOT NULL 且无默认值
+    # （典型：users.phone、users.user_no），留空就会走到这里。
+    # 它同样是 IntegrityError（SQLSTATE 23000），但既不是 1062 也不是外键，
+    # 不单独识别就会退化成人人看不懂的「数据不符合完整性约束」。
+    if errno == 1048 or "cannot be null" in message:
+        match = re.search(r"Column '([^']+)' cannot be null", message)
+        column = match.group(1) if match else ""
+        # 列名 -> 中文名（与上面的 _UNIQUE_FIELD_HINTS 同风格，单独维护避免混淆）
+        label = _NOT_NULL_FIELD_HINTS.get(column)
+        if label:
+            return f"{label}不能为空，请填写后重试。"
+        return "有必填项未填写，请补全后重试。"
 
     # 1451：有子记录引用，不能删；1452：引用了不存在的父记录
     if errno == 1451 or "Cannot delete or update a parent row" in message:

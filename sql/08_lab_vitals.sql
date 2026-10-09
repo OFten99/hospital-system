@@ -278,6 +278,7 @@ CREATE PROCEDURE sp_record_lab_result(
 BEGIN
   DECLARE v_status VARCHAR(10);
   DECLARE v_pending INT;
+  DECLARE v_paid INT;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -294,6 +295,14 @@ BEGIN
   END IF;
   IF v_status = '已作废' THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '检验单已作废，不能录入结果';
+  END IF;
+
+  -- 先收费再检验：未收费的检验单不能录入结果
+  SELECT COUNT(*) INTO v_paid
+  FROM payments
+  WHERE lab_test_id = p_test_id AND pay_status = '已收费';
+  IF v_paid = 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '该检验单尚未收费，请先到收费窗口缴费后再录入结果';
   END IF;
 
   UPDATE lab_test_results

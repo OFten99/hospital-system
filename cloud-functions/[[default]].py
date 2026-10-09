@@ -3096,6 +3096,9 @@ def lab_results(test_id):
             if user["role_code"] not in ("LAB_TECH", "ADMIN"):
                 flash("仅检验技师或管理员可以录入检验结果。", "error")
                 return redirect(url_for("lab_results", test_id=test_id))
+            if test.get("pay_status") != "已收费":
+                flash("该检验单尚未收费，请先到收费窗口缴费后再录入结果。", "error")
+                return redirect(url_for("lab_results", test_id=test_id))
             try:
                 for item in items:
                     result_value = request.form.get(f"result_{item['result_id']}", "").strip()
@@ -3121,7 +3124,12 @@ def lab_results(test_id):
             except mysql.connector.Error as error:
                 flash(handle_db_error(error), "error")
         return redirect(url_for("lab_results", test_id=test_id))
-    can_edit = test["test_status"] in ("待检验", "检验中") and user["role_code"] in ("LAB_TECH", "ADMIN")
+    # 先收费再检验：未收费的检验单不开放录入表单（服务端仍以存储过程兜底校验）
+    can_edit = (
+        test["test_status"] in ("待检验", "检验中")
+        and test.get("pay_status") == "已收费"
+        and user["role_code"] in ("LAB_TECH", "ADMIN")
+    )
     return render_template("lab_results.html", test=test, items=items, can_edit=can_edit)
 
 

@@ -566,14 +566,23 @@ tr.row-abn td:first-child { box-shadow: inset 3px 0 0 #18181b; }
   margin-bottom: 16px;
   background: #fafafa;
 }
-.vital-strip .vs-head {
+.vital-strip > .vs-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 10px;
+  cursor: pointer;
+  list-style: none;
 }
-.vital-strip .vs-head .hint { margin: 0; }
+.vital-strip > .vs-head::-webkit-details-marker { display: none; }
+.vital-strip > .vs-head::before {
+  content: "\25B8";
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.vital-strip[open] > .vs-head::before { content: "\25BE"; }
+.vital-strip > .vs-head .hint { margin: 0; }
 .vs-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -645,3 +654,108 @@ tr.row-abn td:first-child { box-shadow: inset 3px 0 0 #18181b; }
 .inner-table th { color: var(--muted); font-weight: 700; }
 .inner-table tr:last-child td { border-bottom: none; }
 tr.lab-detail-row > td { background: #fafafa; padding: 10px 14px !important; }
+
+
+/* ===== 接诊工作台：左侧步骤条 + 单步内容 ===== */
+.consult-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .consult-layout { grid-template-columns: 1fr; }
+}
+
+/* 左侧列 */
+.stepper-col {
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stepper-patient {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+.stepper-patient .sp-name { font-weight: 800; font-size: 1.05rem; }
+.stepper-patient .sp-meta { color: var(--muted); font-size: 0.86rem; line-height: 1.7; margin-top: 6px; }
+.stepper-patient .sp-back { display: inline-block; margin-top: 8px; font-size: 0.86rem; }
+
+/* 步骤条 */
+.stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.step-item { position: relative; }
+.step-item:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 21px;
+  top: 42px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--rule);
+}
+.step-item.done:not(:last-child)::after { background: var(--accent); }
+.step-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  transition: border-color 0.15s, background 0.15s;
+}
+.step-btn:hover { border-color: #a1a1aa; }
+.step-item.active .step-btn {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(24, 24, 27, 0.10);
+}
+.step-idx {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #e4e4e7;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+.step-item.active .step-idx { background: var(--accent); color: #fff; }
+.step-item.done .step-idx { background: var(--accent); color: #fff; }
+.step-txt { flex: 1; min-width: 0; }
+.step-txt strong { display: block; font-size: 0.94rem; }
+.step-txt small { color: var(--muted); font-size: 0.8rem; }
+.step-flag { color: var(--accent); font-weight: 800; font-size: 0.9rem; }
+
+.stepper-note {
+  background: #fafafa;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+.stepper-col .past-visits { margin-bottom: 0; }
+
+/* 右侧内容区：一次只显示一步 */
+.step-pane { display: none; }
+.step-pane.active { display: block; animation: paneIn 0.18s ease-out; }
+@keyframes paneIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.step-pane .form-card { margin-bottom: 0; }

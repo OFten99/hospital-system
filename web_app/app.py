@@ -392,8 +392,10 @@ _UNIQUE_FIELD_HINTS = {
 }
 
 # 列名 -> 中文名，配合 errno 1048（Column 'x' cannot be null）。
-# 这里只收「表单里容易留空、但库里 NOT NULL」的列，重点是 users.phone：
-# 注册账号页的联系电话没有加 required，留空就会触发 1048。
+# 这里只收「表单里容易留空、但库里 NOT NULL」的列。
+# 注意 users.phone 已放开为可空（自助挂号机不需要手机号，见 sql/12），
+# 仍保留在这里只是当兜底：万一哪个库没跑迁移，也能给出「联系电话不能为空」
+# 而不是「数据不符合完整性约束」。patients.phone 仍是 NOT NULL。
 # 忘了登记的列会退化成「有必填项未填写」，不至于再冒出看不懂的套话。
 _NOT_NULL_FIELD_HINTS = {
     "phone": "联系电话",

@@ -19,14 +19,16 @@
     <nav>
       {% if current_user.role_code == 'DOCTOR' %}
       {# 医生的侧边栏历史上是单独写死的（只有排班 + 处方），
-         新增「门诊病历」「门诊接诊」后如果继续走这条分支就会出现「有权限但看不到入口」，
-         所以这里把医生真正可用的入口一次列全，与 PERMISSIONS['DOCTOR'] 对齐。
-         顺序即医生日常动线：接诊工作台 → 病历 → 处方 → 检验 → 体征 → 排班。 #}
+         新增「门诊病历」「门诊接诊」「诊断管理」后如果继续走这条分支就会出现
+         「有权限但看不到入口」，所以这里把医生真正可用的入口一次列全，
+         与 PERMISSIONS['DOCTOR'] 对齐。
+         顺序即医生日常动线：接诊工作台 → 病历 → 处方 → 检验 → 体征 → 诊断 → 排班。 #}
       <a href="{{ url_for('consultation') }}">门诊接诊</a>
       <a href="{{ url_for('medical_records') }}">门诊病历</a>
       <a href="{{ url_for('prescriptions') }}">处方开具</a>
       <a href="{{ url_for('lab_tests') }}">检验科</a>
       <a href="{{ url_for('vitals') }}">体征记录</a>
+      <a href="{{ url_for('diagnosis') }}">诊断管理</a>
       <a href="{{ url_for('schedules') }}">医生排班</a>
       {% else %}
       {% if role_allowed('dashboard') %}<a href="{{ url_for('dashboard') }}">首页</a>{% endif %}

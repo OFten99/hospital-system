@@ -128,8 +128,8 @@ git add . && git commit -m "更新" && git push
 | Web 路由 | 25（其中 18 个含 POST） |
 | 页面模板 | 22 |
 | 黑盒测试用例 | 50 |
-| `web_app/app.py` | 2331 行 / 约 102 KB |
-| `web_app/db.py` | 273 行（连接池 + 查询封装 + 事务化写入） |
+| `web_app/app.py` | 2350 行 / 约 104 KB |
+| `web_app/db.py` | 272 行（连接池 + 查询封装 + 事务化写入） |
 
 ## 数据库设计要点
 

@@ -93,7 +93,7 @@
         <input type="radio" name="schedule_id" value="{{ s.schedule_id }}" required>
         <span>
           <div class="s-title">{{ s.department_name }} · {{ s.doctor_name }}（{{ s.title }}）</div>
-          <div class="s-meta">{{ s.shift_type }} {{ s.clinic_room }} · 挂号费 {{ '%.2f'|format(s.consultation_fee) }} 元</div>
+          <div class="s-meta">{{ s.shift_type }} {{ s.clinic_room or '待分配诊室' }} · 挂号费 {{ '%.2f'|format(s.consultation_fee) }} 元</div>
           <div class="s-meta">
             {% if s.remain > 0 %}<span class="s-remain">剩余 {{ s.remain }} 号</span>{% else %}<span class="s-full">号源已满</span>{% endif %}
           </div>

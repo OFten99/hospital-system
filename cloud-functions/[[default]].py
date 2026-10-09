@@ -509,7 +509,8 @@ _SCHEDULE_SELECT_SQL = """
     SELECT s.schedule_id, s.work_date, s.shift_type, s.clinic_room,
            s.max_registrations, s.registered_count,
            doc.doctor_id, doc.doctor_name, doc.title,
-           dept.department_name, doc.consultation_fee,
+           COALESCE(dept.department_name, '未指定科室') AS department_name,
+           COALESCE(doc.consultation_fee, 0) AS consultation_fee,
            GREATEST(s.max_registrations - s.registered_count -
              (SELECT COUNT(*) FROM appointments a
                WHERE a.schedule_id = s.schedule_id AND a.status = '已预约' AND a.expire_time > NOW()), 0) AS remain
@@ -518,8 +519,13 @@ _SCHEDULE_SELECT_SQL = """
       SELECT d.doctor_id, u.user_name AS doctor_name, d.title, d.consultation_fee, u.department_id
       FROM doctors d JOIN users u ON d.user_id = u.user_id
     ) doc ON s.doctor_id = doc.doctor_id
-    JOIN departments dept ON doc.department_id = dept.department_id
+    LEFT JOIN departments dept ON doc.department_id = dept.department_id
 """
+# 注意：这里必须是 LEFT JOIN + COALESCE，不能用 INNER JOIN。
+# users.department_id 是可空的（新增用户表单里的「不指定」选项），一旦为空，
+# INNER JOIN 会把这名医生的全部排班行整行丢掉：医生已排班却挂不上号、
+# 排班列表里也看不到，用户看到的现象就是「不填科室无法排班」。
+# consultation_fee 虽为 NOT NULL，也顺手兜底，避免后续改结构时 NULL 冒出来。
 
 
 # ============================================================
@@ -1297,6 +1303,38 @@ def schedules():
                     doctor_id = my_doctor_id
                 else:
                     doctor_id = int(request.form["doctor_id"])
+                work_date = request.form["work_date"]
+                shift_type = request.form["shift_type"]
+                # ---- 同一医生同一天的同班次 / 冲突班次校验 ----
+                # 数据库唯一键 uk_schedule_doctor_date 只覆盖 (doctor_id, work_date,
+                # shift_type)，它拦不住「上午 + 全天」这种**班次取值不同但时段重叠**
+                # 的排班：上午 08:00-12:00 落在全天 08:00-17:00 之内，医生在同一个
+                # 时段被排了两次，挂号时会出现两个都能选、号源重复计算的排班。
+                # 唯一键也拦不住「上午 + 下午」——那是合法的，属于两个不同时段，
+                # 所以这里不能用「同一天只能排一条」的粗暴规则，必须按时段判断。
+                existing = fetch_all(
+                    "SELECT shift_type FROM doctor_schedules WHERE doctor_id = %s AND work_date = %s",
+                    (doctor_id, work_date),
+                )
+                taken = {row["shift_type"] for row in existing}
+                if taken:
+                    # 时段重叠判断：全天与上午/下午互为冲突；同名班次互为冲突；
+                    # 上午与下午可以共存。
+                    conflict = None
+                    if shift_type in taken:
+                        conflict = shift_type
+                    elif shift_type == "全天" and (taken & {"上午", "下午"}):
+                        conflict = "上午" if "上午" in taken else "下午"
+                    elif "全天" in taken:
+                        conflict = "全天"
+                    if conflict:
+                        flash(
+                            "该医生 %s 已排「%s」，与本次「%s」时段冲突，"
+                            "同一天不能重复排班（上午与下午可并存）。"
+                            % (work_date, conflict, shift_type),
+                            "error",
+                        )
+                        return redirect(url_for("schedules"))
                 execute(
                     """
                     INSERT INTO doctor_schedules (doctor_id, work_date, shift_type, clinic_room, max_registrations)
@@ -1304,8 +1342,8 @@ def schedules():
                     """,
                     (
                         doctor_id,
-                        request.form["work_date"],
-                        request.form["shift_type"],
+                        work_date,
+                        shift_type,
                         request.form.get("clinic_room") or None,
                         int(request.form["max_registrations"]),
                     ),
@@ -1325,6 +1363,25 @@ def schedules():
                 schedule_id = int(request.form["schedule_id"])
                 if not _schedule_belongs_to_me(schedule_id):
                     flash("只能操作自己的排班。", "error")
+                    return redirect(url_for("schedules"))
+                # 删除前先查引用。doctor_schedules 只被 appointments 一张表通过
+                # fk_appt_schedule 引用，直接 DELETE 落库时只会收到 1451，提示是
+                # 泛泛的「该数据已被其它业务记录引用（挂号、处方或收费等）」，
+                # 用户根本不知道到底卡在哪、该怎么办。这里先点清是**几条预约**，
+                # 并给出可执行的下一步（先取消/处理预约，或改用「停诊」）。
+                used = fetch_one(
+                    "SELECT COUNT(*) AS n FROM appointments WHERE schedule_id = %s",
+                    (schedule_id,),
+                )
+                used_n = int(used["n"]) if used else 0
+                if used_n:
+                    flash(
+                        "该排班已被 %d 条预约引用，不能删除。"
+                        "请先在「预约管理」中取消或处理这些预约；"
+                        "若只是暂时不出诊，可直接在列表里点「停诊」。"
+                        % used_n,
+                        "error",
+                    )
                     return redirect(url_for("schedules"))
                 execute("DELETE FROM doctor_schedules WHERE schedule_id = %s", (schedule_id,))
                 flash("排班已删除。", "success")
@@ -1358,11 +1415,13 @@ def schedules():
         )
     doctors = fetch_all(
         """
-        SELECT d.doctor_id, u.user_name AS doctor_name, dept.department_name, d.title, d.consultation_fee
+        SELECT d.doctor_id, u.user_name AS doctor_name,
+               COALESCE(dept.department_name, '未指定科室') AS department_name,
+               d.title, COALESCE(d.consultation_fee, 0) AS consultation_fee
         FROM doctors d
         JOIN users u ON d.user_id = u.user_id
-        JOIN departments dept ON u.department_id = dept.department_id
-        ORDER BY dept.department_id, d.doctor_id
+        LEFT JOIN departments dept ON u.department_id = dept.department_id
+        ORDER BY dept.department_id IS NULL, dept.department_id, d.doctor_id
         """
     )
     return render_template("schedules.html", rows=rows, doctors=doctors, work_date=work_date,

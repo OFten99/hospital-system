@@ -27,7 +27,7 @@
       <select name="schedule_id" required>
         <option value="">-- 选择医生排班 --</option>
         {% for s in schedules %}
-        <option value="{{ s.schedule_id }}">{{ s.department_name }} · {{ s.doctor_name }}（{{ s.title }}）{{ s.shift_type }} {{ s.clinic_room }}，剩{{ s.remain }}号，挂号费{{ '%.2f'|format(s.consultation_fee) }}元</option>
+        <option value="{{ s.schedule_id }}">{{ s.department_name }} · {{ s.doctor_name }}（{{ s.title }}）{{ s.shift_type }} {{ s.clinic_room or '待分配诊室' }}，剩{{ s.remain }}号，挂号费{{ '%.2f'|format(s.consultation_fee) }}元</option>
         {% endfor %}
       </select>
     </label>

@@ -83,6 +83,14 @@
                 <button type="submit">启用</button>
                 {% endif %}
               </form>
+              {% if row.schedule_status != '正常' and not row.appointment_count %}
+              <form class="inline-form" method="post"
+                    onsubmit="return confirm('确认删除 {{ row.work_date }} {{ row.doctor_name }} 的「{{ row.shift_type }}」排班？删除后不可恢复。');">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="schedule_id" value="{{ row.schedule_id }}">
+                <button class="danger-btn" type="submit">删除</button>
+              </form>
+              {% endif %}
             </div>
           </td>
           {% endif %}

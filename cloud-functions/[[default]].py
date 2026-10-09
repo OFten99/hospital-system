@@ -280,8 +280,10 @@ def login_required(view_func):
 PERMISSIONS = {
     "REGISTRAR": {"dashboard", "patients", "registrations", "schedules", "appointments"},
     "REGMACHINE": {"kiosk"},
-    # 医生：排班 + 处方 + 门诊病历（病历页内可顺带开具检验申请）
-    "DOCTOR": {"dashboard", "schedules", "prescriptions", "medical_records"},
+    # 医生：排班 + 门诊病历（病历页内可顺带开检验）+ 处方 + 检验科 + 体征
+    # 说明：这里必须与 base.html 里 DOCTOR 分支写死的菜单项一一对应，
+    # 否则会出现「路由能进、菜单没入口」或反过来的情况。
+    "DOCTOR": {"dashboard", "schedules", "prescriptions", "medical_records", "lab", "vitals"},
     "CASHIER": {"dashboard", "payments"},
     "LAB_TECH": {"dashboard", "lab"},
     "PHARMACIST": {"dashboard", "dispense", "medicines"},

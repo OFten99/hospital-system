@@ -2100,7 +2100,8 @@ def medical_records():
                             reg_ctx["doctor_id"],
                             reg_ctx["department_id"],
                             registration_id,
-                            request.form.get("sample_type") or "血液",
+                            # 标本类型按勾选项目自动判定（与「检验科」页同口径）
+                            derive_sample_type(item_ids),
                             ",".join(item_ids),
                             int(user["user_id"]),
                         ],
@@ -2420,6 +2421,19 @@ def lab_tests():
                         flash("只能为本次接诊医生名下的挂号开具检验申请。", "error")
                         return redirect(url_for("lab_tests"))
 
+                item_ids = request.form.getlist("item_ids")
+                if not item_ids:
+                    flash("请至少勾选一项检验项目。", "error")
+                    return redirect(url_for("lab_tests"))
+
+                # ---- 标本类型：不再让用户选，按所选检验项目的类别自动判定 ----
+                # lab_items.item_category 已经明确区分「尿常规 / 粪便常规 / 血常规…」，
+                # 原先页面上再放一个「血液/尿液/粪便/其他」下拉纯属重复且容易选错
+                # （比如勾了尿常规却把标本填成血液）。这里按类别映射：
+                #     尿常规 → 尿液；粪便常规 → 粪便；其余（血常规/肝肾/血脂/炎症/电解质）→ 血液
+                # 多种类别混选时取「项目数最多的那一类」的标本类型。
+                sample_type = derive_sample_type(item_ids)
+
                 call_proc(
                     "sp_add_lab_test",
                     [
@@ -2428,12 +2442,12 @@ def lab_tests():
                         doctor_id,
                         department_id,
                         registration_id,
-                        request.form.get("sample_type") or "血液",
-                        ",".join(request.form.getlist("item_ids")),
+                        sample_type,
+                        ",".join(item_ids),
                         int(user["user_id"]),
                     ],
                 )
-                flash("检验申请开具成功，状态：待检验。", "success")
+                flash("检验申请开具成功，标本类型：%s，状态：待检验。" % sample_type, "success")
             elif action == "cancel_test":
                 call_proc("sp_cancel_lab_test", [int(request.form["test_id"]), int(user["user_id"])])
                 flash("检验单已作废。", "success")
@@ -2531,6 +2545,49 @@ def lab_tests():
         status=status,
         my_doctor=my_doctor,
     )
+
+
+# 检验项目类别 → 标本类型 映射。
+# 只有「尿 / 粪」两类的标本与血液不同，其余（血常规、肝功能、肾功能、
+# 血糖血脂、炎症标志物、电解质）都取静脉血，统一归为「血液」。
+_SAMPLE_TYPE_BY_CATEGORY = {
+    "尿常规": "尿液",
+    "粪便常规": "粪便",
+    "大便常规": "粪便",
+}
+_DEFAULT_SAMPLE_TYPE = "血液"
+
+
+def derive_sample_type(item_ids):
+    """按勾选的检验项目自动判定标本类型。
+
+    原先检验开单表单里有一个「标本类型」下拉（血液/尿液/粪便/其他），
+    但它与勾选的检验项目是重复信息，且极易选错（勾了尿常规却填血液）。
+    现在改为由项目类别自动推导：
+      * 尿常规   → 尿液
+      * 粪便常规 → 粪便
+      * 其余     → 血液
+    多类别混选时，取「项目数最多的那一类」对应的标本类型（并列时优先非血液，
+    因为混选通常是为了补做尿/粪）。无有效项目时回退默认「血液」。
+    """
+    ids = [str(i).strip() for i in (item_ids or []) if str(i).strip()]
+    if not ids:
+        return _DEFAULT_SAMPLE_TYPE
+    # ids 来自表单，这里只做占位符拼装（数量受勾选框限制），不拼接原始值
+    placeholders = ", ".join(["%s"] * len(ids))
+    rows = fetch_all(
+        "SELECT item_category, COUNT(*) AS n FROM lab_items "
+        "WHERE item_id IN (%s) GROUP BY item_category" % placeholders,
+        tuple(ids),
+    )
+    if not rows:
+        return _DEFAULT_SAMPLE_TYPE
+    # 按项目数降序；并列时把「非血液」排前面
+    def sort_key(row):
+        sample = _SAMPLE_TYPE_BY_CATEGORY.get(row["item_category"], _DEFAULT_SAMPLE_TYPE)
+        return (int(row["n"]), 1 if sample != _DEFAULT_SAMPLE_TYPE else 0)
+    best = max(rows, key=sort_key)
+    return _SAMPLE_TYPE_BY_CATEGORY.get(best["item_category"], _DEFAULT_SAMPLE_TYPE)
 
 
 def auto_flag(reference_range, result_value):

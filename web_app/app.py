@@ -1809,7 +1809,7 @@ def consultation(registration_id=None):
                             request.form.get("past_history") or None,
                             request.form.get("physical_exam") or None,
                             request.form.get("diagnosis") or None,
-                            request.form.get("diagnosis_code") or None,
+                            None,  # diagnosis_code：医生端已去掉「诊断编码」录入，传 None
                             request.form.get("advice") or None,
                             request.form.get("record_status") or "草稿",
                         ],
@@ -2477,7 +2477,7 @@ def medical_records():
                         request.form.get("past_history") or None,
                         request.form.get("physical_exam") or None,
                         request.form.get("diagnosis") or None,
-                        request.form.get("diagnosis_code") or None,
+                        None,  # diagnosis_code：医生端已去掉「诊断编码」录入，传 None
                         request.form.get("advice") or None,
                         request.form.get("record_status") or "草稿",
                     ],

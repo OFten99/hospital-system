@@ -70,12 +70,6 @@
           </select>
         </label>
       </div>
-      <div class="field">
-        <label>诊断编码（ICD-10，选填）
-          <input name="diagnosis_code" maxlength="30" placeholder="如 J06.9"
-                 value="{{ editing.diagnosis_code or '' if editing else '' }}">
-        </label>
-      </div>
     </div>
 
     <div class="form-grid" style="margin-top:14px">
@@ -188,7 +182,7 @@
     <table>
       <thead>
         <tr><th>病历号</th><th>就诊日期</th><th>患者</th><th>科室</th><th>接诊医生</th>
-            <th>诊断</th><th>编码</th><th>状态</th><th>操作</th></tr>
+            <th>诊断</th><th>状态</th><th>操作</th></tr>
       </thead>
       <tbody>
         {% for row in rows %}
@@ -199,7 +193,6 @@
           <td>{{ row.department_name }}</td>
           <td>{{ row.doctor_name }}</td>
           <td>{{ row.diagnosis or '—' }}</td>
-          <td>{{ row.diagnosis_code or '—' }}</td>
           <td>
             {% if row.record_status == '已归档' %}<span class="badge">已归档</span>
             {% else %}<span class="muted">草稿</span>{% endif %}

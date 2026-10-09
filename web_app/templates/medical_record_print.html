@@ -52,7 +52,6 @@
     <span class="mr-label">诊断</span>
     <div class="mr-text">
       {{ record.diagnosis or '—' }}
-      {% if record.diagnosis_code %}<span class="muted">（编码 {{ record.diagnosis_code }}）</span>{% endif %}
     </div>
   </div>
   <div class="mr-section"><span class="mr-label">医嘱</span><div class="mr-text">{{ record.advice or '—' }}</div></div>

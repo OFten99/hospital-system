@@ -271,12 +271,14 @@ PERMISSIONS = {
     # 自动隐藏；若直接敲 /appointments 会被 permission_required 挡回首页。
     "REGISTRAR": {"dashboard", "patients", "registrations", "schedules"},
     "REGMACHINE": {"kiosk"},
-    # 医生：接诊工作台 + 排班 + 门诊病历 + 处方 + 检验科 + 体征
+    # 医生：接诊工作台 + 排班 + 门诊病历 + 处方 + 检验科 + 体征 + 诊断
     # 说明：这里必须与 base.html 里 DOCTOR 分支写死的菜单项一一对应，
     # 否则会出现「路由能进、菜单没入口」或反过来的情况。
     # consultation = 医生接诊工作台（就诊队列 → 开始接诊 → 问诊写病历 → 按需检验 → 开药）
+    # diagnosis    = 诊断管理（任务书要求「诊断功能：添加、修改病人的诊断结果」，
+    #                医生须能直接维护病人档案的最近诊断，而不能只靠管理员）
     "DOCTOR": {"consultation", "dashboard", "schedules", "prescriptions",
-               "medical_records", "lab", "vitals"},
+               "medical_records", "lab", "vitals", "diagnosis"},
     "CASHIER": {"dashboard", "payments"},
     "LAB_TECH": {"dashboard", "lab"},
     "PHARMACIST": {"dashboard", "dispense", "medicines"},
@@ -3134,7 +3136,9 @@ def diagnosis():
                 flash(handle_integrity_error(error), "error")
             except mysql.connector.Error as error:
                 flash(handle_db_error(error), "error")
-            except (KeyError, TypeError) as error:
+            except (KeyError, TypeError, ValueError) as error:
+                # ValueError：patient_id 传了非数字（构造 POST）时 int() 抛的，
+                # 属「必填项没填/格式不对」这一类，必须归第三层，否则落全局 500。
                 flash(handle_param_error(error), "error")
         return redirect(url_for("diagnosis"))
     patients = fetch_all(

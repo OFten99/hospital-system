@@ -1,14 +1,14 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 cd /d "%~dp0"
 if not exist "my_cloud_db.cnf" (
-  echo è¿˜æ²¡æœ‰é…ç½®æ–‡ä»¶ï¼Œå…ˆè¿è¡Œä¸€æ¬¡ deploy_cloud_db.bat ç”Ÿæˆæ¨¡æ¿ï¼Œå†å›æ¥ç¼–è¾‘ã€‚
+  echo »¹Ã»ÓĞÅäÖÃÎÄ¼ş£¬ÏÈÔËĞĞÒ»´Î deploy_cloud_db.bat Éú³ÉÄ£°å£¬ÔÙ»ØÀ´±à¼­¡£
   echo.
   pause
   exit /b 1
 )
-echo æ­£åœ¨ç”¨è®°äº‹æœ¬æ‰“å¼€ my_cloud_db.cnf ...
-echo æŠŠ host / port / user / password å››é¡¹å¡«åœ¨ = å·åé¢ï¼Œä¿å­˜åå…³é—­è®°äº‹æœ¬ï¼Œ
-echo ç„¶ååŒå‡» deploy_cloud_db.bat æ‰§è¡Œå¯¼å…¥ã€‚
+echo ÕıÔÚÓÃ¼ÇÊÂ±¾´ò¿ª my_cloud_db.cnf ...
+echo °Ñ host / port / user / password ËÄÏîÌîÔÚ = ºÅºóÃæ£¬±£´æºó¹Ø±Õ¼ÇÊÂ±¾£¬
+echo È»ºóË«»÷ deploy_cloud_db.bat Ö´ĞĞµ¼Èë¡£
 echo.
 start "" notepad "%~dp0my_cloud_db.cnf"

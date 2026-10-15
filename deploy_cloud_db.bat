@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 cd /d "%~dp0"
 echo ============================================================
 echo  Hospital Outpatient HIS - Cloud Database Deployment

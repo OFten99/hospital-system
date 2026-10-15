@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 title HIS Web - Hospital Outpatient System
 cd /d "%~dp0web_app"
 
@@ -47,19 +47,19 @@ if errorlevel 1 goto DBFAIL
 
 rem ================= 4. Start Web =================
 
-rem å¼€å¯æ¼”ç¤ºæ¨¡å¼ï¼šå¤šå‡º /demo æŽ§åˆ¶å°ï¼ˆå…å¯†åˆ‡æ¢è§’è‰² + ä¸€é”®èµ°å®Œå°±è¯Šé—­çŽ¯ï¼‰ã€‚
-rem ä»…æœ¬æœºå¯è®¿é—®ï¼›ä¸éœ€è¦æ—¶æŠŠè¿™è¡Œæ³¨é‡ŠæŽ‰ï¼Œå°±å›žåˆ°ã€Œåªèƒ½æ­£å¸¸ç™»å½•ã€çš„çŠ¶æ€ã€‚
+rem ¿ªÆôÑÝÊ¾Ä£Ê½£º¶à³ö /demo ¿ØÖÆÌ¨£¨ÃâÃÜÇÐ»»½ÇÉ« + Ò»¼ü×ßÍê¾ÍÕï±Õ»·£©¡£
+rem ½ö±¾»ú¿É·ÃÎÊ£»²»ÐèÒªÊ±°ÑÕâÐÐ×¢ÊÍµô£¬¾Í»Øµ½¡¸Ö»ÄÜÕý³£µÇÂ¼¡¹µÄ×´Ì¬¡£
 set "HIS_DEMO_MODE=1"
 
 echo [4/4] Starting web service ...
 echo.
 echo ------------------------------------------------------------
 echo   Open in browser:  http://127.0.0.1:5000
-echo   Demo console:     http://127.0.0.1:5000/demo   ^<-- æ¼”ç¤ºä»Žè¿™é‡Œè¿›
+echo   Demo console:     http://127.0.0.1:5000/demo   ^<-- ÑÝÊ¾´ÓÕâÀï½ø
 echo   Test accounts:    admin01 / cash01 / doctor01 / lab01 / pharm01
 echo   Default password: 123456
 echo.
-echo   æ¼”ç¤ºæ¨¡å¼å·²å¼€å¯ï¼š/demo å¯å…å¯†åˆ‡æ¢è§’è‰²å¹¶ä¸€é”®è·‘å®Œæ•´æ¡å°±è¯Šé—­çŽ¯ã€‚
+echo   ÑÝÊ¾Ä£Ê½ÒÑ¿ªÆô£º/demo ¿ÉÃâÃÜÇÐ»»½ÇÉ«²¢Ò»¼üÅÜÍêÕûÌõ¾ÍÕï±Õ»·¡£
 echo.
 echo   KEEP THIS WINDOW OPEN. Closing it stops the service.
 echo ------------------------------------------------------------

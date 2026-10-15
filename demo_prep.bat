@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 title HIS Demo Prep - Hospital Outpatient System
 cd /d "%~dp0"
 

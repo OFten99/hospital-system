@@ -43,12 +43,15 @@
 # 1. 启动 MySQL（免服务方式）
 start_mysql.bat
 
-# 2. 初始化数据库（一键执行 sql/01~11，可重复运行）
+# 2. 初始化数据库（一键执行 sql/01~14，可重复运行）
 python init_database.py
 
 # 3. 启动 Web
 run_web.bat   # 或 cd web_app && python app.py
 # 浏览器打开 http://127.0.0.1:5000
+
+# 4. 跑一遍自动化测试（可选，172 个用例）
+run_tests.bat   # 或 python -m unittest discover -s tests -v
 ```
 
 ## 部署到公网（免费）
@@ -85,6 +88,15 @@ git add . && git commit -m "更新" && git push
 ```
 ├── sql/                          # 数据库脚本（01 建库 ~ 07 测试数据，08 检验科+体征，09 任务书补全，10 预约挂号，11 公告，12 手机号可空，13 门诊病历，14 挂号统计口径修正）
 ├── web_app/                      # Flask Web 后端（app.py + db.py + 22 个模板 + 样式，本地开发源码）
+├── tests/                        # 自动化测试（172 个用例，标准库 unittest，零额外依赖）
+│   ├── base.py                   #   公共夹具：连接、登录、字典快照、测试数据构造与自清理
+│   ├── test_contracts.py         #   离线静态契约（路由/模板清单、异常分层、Jinja 陷阱、密码哈希…）
+│   ├── test_auth_and_permissions.py        # 五角色登录与权限矩阵
+│   ├── test_patients_and_registration.py   # 建档 / 挂号 / 退号 / 排班
+│   ├── test_consultation_and_records.py    # 接诊工作台 / 门诊病历
+│   ├── test_prescription_payment_pharmacy.py  # 开方 / 收费 / 退费 / 发药
+│   ├── test_admin_and_lab.py     #   字典维护 / 检验科流程 / 诊断 / 报表导出
+│   └── README.md                 #   测试说明与接口契约清单
 ├── cloud-functions/              # EdgeOne Makers 云函数目录（由 build_edgeone.py 自动生成，勿手改）
 ├── docs/
 │   ├── 部署到公网_EdgeOne.md              # 免费部署到公网的完整步骤
@@ -102,7 +114,7 @@ git add . && git commit -m "更新" && git push
 ├── check_env.py                  # 环境自检
 ├── verify_hospital.py            # Web 端到端回归验证
 ├── gen_testcases.py / gen_xmind.py
-├── run_web.bat / start_mysql.bat
+├── run_web.bat / start_mysql.bat / run_tests.bat
 └── 运行说明.md
 ```
 
@@ -126,8 +138,37 @@ git add . && git commit -m "更新" && git push
 | Web 路由 | 25 个端点（26 条 `@app.route` 装饰器：`/consultation` 与 `/consultation/<id>` 共用一个视图）；**17 个端点含 POST**，其中 `/login` 只读表单，故 16 个是数据写入路由 |
 | 页面模板 | 22 |
 | 黑盒测试用例 | 50 |
+| 自动化测试用例 | 172（`tests/`，标准库 `unittest`，无需 pytest） |
 | `web_app/app.py` | 约 3100 行 |
 | `web_app/db.py` | 340 行（连接池 + 查询封装 + 事务化写入 + OUT 参数调用） |
+
+## 自动化测试
+
+`tests/` 下有一套 **172 个用例**的自动化测试，只用 Python 标准库 `unittest`，
+不引入任何额外依赖：
+
+```bash
+python -m unittest discover -s tests -v   # 或双击 run_tests.bat
+```
+
+分两类，互不干扰：
+
+- **离线静态契约（38 个）**：不碰数据库，克隆下来就能跑。把路由/模板清单、
+  三层异常分层的覆盖数量、Jinja `.items` 陷阱、密码哈希格式、检验结果标志判定、
+  业务单号唯一性等「接口契约」写成断言——改动接口时会立刻失败，逼迫改动显式化。
+- **业务集成（134 个）**：走 Flask 测试客户端跑真实 HTTP 处理链路，直连本地 MySQL，
+  覆盖建档 → 挂号 → 接诊 → 病历 → 检验 → 处方 → 收费 → 发药的全流程，
+  以及五角色权限矩阵、字典维护、报表导出。
+  数据库不可用时这些用例会**优雅跳过**而不是报错。
+
+用例之间互不污染、可反复运行：所有业务数据都挂在测试自建的患者/医生名下，
+`tearDown` 按外键依赖顺序反查清理，之后数据库对象数与基线完全一致。
+
+> 详细说明、接口契约清单与「测试抓到过的真实缺陷」见 **[`tests/README.md`](tests/README.md)**。
+>
+> 例如：`make_no()` 早期用秒级时间戳，同一秒连续两次挂号会撞 `reg_no` 唯一索引；
+> `sp_issue_prescription` 曾把 `doctors.doctor_id` 当成 `users.user_id` 写审计日志，
+> 导致部分医生**每次开方都因外键 1452 回滚失败**。两处均已修复并加了回归守卫。
 
 ## 数据库设计要点
 
@@ -138,7 +179,7 @@ git add . && git commit -m "更新" && git push
 - **约束与索引**：唯一约束、检查约束、高频查询索引
 
 > **关于脚本条数与实际对象数的差异**：在 `sql/` 里直接数 `CREATE` 语句会得到
-> 11 条 `CREATE VIEW` 和 20 条 `CREATE PROCEDURE`，比上面的 9 / 18 各多 2 条。
+> 12 条 `CREATE VIEW` 和 20 条 `CREATE PROCEDURE`，比上面的 9 / 18 多 3 / 2 条。
 > 原因是后期脚本用 `DROP ... IF EXISTS` + 重新 `CREATE` 的方式**覆盖升级**了早期定义：
 >
 > | 被覆盖的对象 | 早期定义 | 覆盖升级 | 升级内容 |
@@ -147,8 +188,9 @@ git add . && git commit -m "更新" && git push
 > | `sp_register` | `04_procedures.sql` | `10_appointment.sql` | 支持预约取号 |
 > | `v_lab_test_list` | `08_lab_vitals.sql` | `09_task2_gaps.sql` | 补检验单据字段 |
 > | `sp_add_lab_test` | `08_lab_vitals.sql` | `09_task2_gaps.sql` | 补业务校验 |
+> | `v_today_registrations` | `03_views.sql` | `14_fix_reg_aggregates.sql` | 退号不再计入挂号数与挂号费合计 |
 >
-> 所以按 `01 → 13` 顺序完整导入后，数据库里的实际对象数是 **9 个视图 / 18 个存储过程**。
+> 所以按 `01 → 14` 顺序完整导入后，数据库里的实际对象数是 **9 个视图 / 18 个存储过程**。
 
 ## 异常处理与数据一致性
 

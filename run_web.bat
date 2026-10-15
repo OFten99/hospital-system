@@ -50,7 +50,7 @@ echo [4/4] Starting web service ...
 echo.
 echo ------------------------------------------------------------
 echo   Open in browser:  http://127.0.0.1:5000
-echo   Test accounts:    admin01 / doctor01 / reg01 / cash01
+echo   Test accounts:    admin01 / cash01 / doctor01 / lab01 / pharm01
 echo   Default password: 123456
 echo.
 echo   KEEP THIS WINDOW OPEN. Closing it stops the service.

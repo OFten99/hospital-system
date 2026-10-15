@@ -218,6 +218,7 @@ CREATE PROCEDURE sp_issue_prescription(
 BEGIN
   DECLARE v_prescription_id INT;
   DECLARE v_total DECIMAL(10,2);
+  DECLARE v_doctor_user_id INT;
   DECLARE v_done INT DEFAULT 0;
   DECLARE v_medicine_id INT;
   DECLARE v_quantity INT;
@@ -287,8 +288,15 @@ BEGIN
   SET visit_status = '已就诊'
   WHERE registration_id = p_registration_id AND visit_status IN ('待就诊','就诊中');
 
+  -- 审计日志的 user_id 必须落 users.user_id。
+  -- 这里传入的 p_doctor_id 是 doctors.doctor_id，两者是不同序列：直接写进去会
+  -- ① 在 doctor_id 与 user_id 恰好相同的库上被静默记到别人（或管理员）名下，
+  -- ② 在两者不同的库上直接触发 fk_logs_user 外键 1452，导致整笔开方回滚失败
+  --    （现象是「医生01 能开方、医生02 开方必失败」）。所以必须先换算成 user_id。
+  SELECT user_id INTO v_doctor_user_id FROM doctors WHERE doctor_id = p_doctor_id;
+
   INSERT INTO operation_logs (user_id, business_type, business_id, operation_content)
-  VALUES (p_doctor_id, '开具处方', v_prescription_id, CONCAT('开具处方：', p_prescription_no, '，金额：', COALESCE(v_total, 0)));
+  VALUES (v_doctor_user_id, '开具处方', v_prescription_id, CONCAT('开具处方：', p_prescription_no, '，金额：', COALESCE(v_total, 0)));
 
   COMMIT;
 END$$

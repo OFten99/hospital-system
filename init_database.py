@@ -1,8 +1,9 @@
 """
 医院门诊管理系统 —— 一键初始化数据库脚本
 
-作用：自动按顺序执行 sql 文件夹中的 01~07 号脚本，完成
-      “建库 → 建表 → 建视图 → 建存储过程 → 建触发器 → 建索引/查询示例 → 灌测试数据”。
+作用：自动按顺序执行 sql 文件夹中的 01~14 号脚本，完成
+      “建库 → 建表 → 建视图 → 建存储过程 → 建触发器 → 建索引/查询示例 → 灌测试数据
+       → 体征/检验 → 任务书补差 → 预约 → 公告 → 用户手机号放开 → 门诊病历 → 统计口径修正”。
 
 用法：
     python init_database.py                      # 本地默认配置 root / 123456
@@ -45,6 +46,14 @@ SQL_FILES = [
     "09_task2_gaps.sql",
     "10_appointment.sql",
     "11_announcement.sql",
+    # 12~14 是后续迭代的迁移脚本，但同样属于「从零建库」的必需步骤：
+    #   12 users.phone 放开可空（否则新增「不填手机号」的账号会撞 1048）
+    #   13 门诊病历表 + sp_next_record_no / sp_save_medical_record
+    #   14 修正 v_today_registrations 把退号计入合计的口径问题
+    # 漏掉它们会得到一个「能连上、但医生接诊页一保存就报错」的半成品库。
+    "12_users_phone_nullable.sql",
+    "13_medical_records.sql",
+    "14_fix_reg_aggregates.sql",
 ]
 
 TRUTHY = {"1", "true", "yes", "on", "y"}
@@ -200,7 +209,10 @@ def main():
             execute_sql_file(conn, SQL_DIR / name)
         print("-" * 60)
         print("全部脚本执行成功！数据库 hospital_outpatient 已就绪。")
-        print("测试账号：admin01 / reg01 / cash01 / doctor01，密码均为 123456")
+        print("测试账号（密码均为 123456）：")
+        print("  admin01  系统超级用户     cash01   收费人员")
+        print("  doctor01 医生             lab01    检验科人员")
+        print("  pharm01  药房人员")
         print("")
     except mysql.connector.Error as exc:
         print("-" * 60)

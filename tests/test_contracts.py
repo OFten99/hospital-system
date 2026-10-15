@@ -9,12 +9,20 @@
   5. 密码哈希兼容策略（加盐 + 历史无盐 SHA-256，长度适配列宽）；
   6. 结果标志自动判定规则；
   7. 全局 500 兜底不外泄内部信息；
-  8. 已下线功能（挂号员 / 挂号机 / 预约挂号）不得残留。
+  8. 已下线功能（挂号员 / 挂号机 / 预约挂号）不得残留；
+  9. 演示模式（/demo）的路由存在且默认被门控。
+
+⚠️ 关于第 9 条：演示模式（HIS_DEMO_MODE）是答辩辅助功能，**不属于对外口径里的
+业务规模**。下面所有规模统计（装饰器数 / 端点数 / 模板数 / 写路由数）都会把
+`/demo*` 路由与 `demo.html` 排除掉，因此「25 条业务路由 / 22 个页面」的对外
+口径保持不变；演示相关路由单独由 DemoModeContractTests 守住。
 """
 
+import os
 import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.base import REPO_ROOT, WEB_APP_DIR, HisTestCase  # noqa: F401
 
@@ -23,13 +31,32 @@ APP_PY = WEB_APP_DIR / "app.py"
 DB_PY = WEB_APP_DIR / "db.py"
 TEMPLATE_DIR = WEB_APP_DIR / "templates"
 
-# 与 README「项目规模」表一致的对外口径
+# 与 README「项目规模」表一致的对外口径（均不含演示模式）
 EXPECTED_DECORATORS = 26
 EXPECTED_RULES = 27            # 26 条 @app.route + Flask 自动注册的 /static/<path>
 EXPECTED_ENDPOINTS = 26        # 25 个业务端点 + static
 EXPECTED_POST_ENDPOINTS = 17   # 含只读表单的 /login
 EXPECTED_WRITE_ROUTES = 16     # 排除 /login
 EXPECTED_TEMPLATES = 22
+
+# ---- 演示模式（不计入上面的业务口径） ----
+DEMO_URL_PREFIX = "/demo"
+DEMO_ENDPOINT_PREFIX = "demo_"
+DEMO_TEMPLATE = "demo.html"
+DEMO_ENDPOINTS = {"demo_console", "demo_switch", "demo_step", "demo_reset"}
+
+
+def _is_demo_decorator(decorator):
+    return '"%s' % DEMO_URL_PREFIX in decorator
+
+
+def _is_demo_rule(rule):
+    return (rule.rule.startswith(DEMO_URL_PREFIX)
+            or rule.endpoint.startswith(DEMO_ENDPOINT_PREFIX))
+
+
+def _business_templates():
+    return sorted(p for p in TEMPLATE_DIR.glob("*.html") if p.name != DEMO_TEMPLATE)
 
 
 def _read(path):
@@ -71,15 +98,18 @@ class RouteInventoryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = _read(APP_PY)
-        cls.decorators = re.findall(r"@app\.route\(", cls.source)
+        # 统计时排除 /demo* 路由：演示模式是答辩辅助功能，不计入对外业务口径
+        cls.decorators = [d for d in re.findall(r"@app\.route\([^)]*\)", cls.source)
+                          if not _is_demo_decorator(d)]
 
     def test_decorator_count(self):
         self.assertEqual(len(self.decorators), EXPECTED_DECORATORS)
 
     def test_runtime_rule_and_endpoint_counts(self):
         import app as app_module
-        rules = list(app_module.app.url_map.iter_rules())
-        endpoints = set(app_module.app.view_functions)
+        rules = [r for r in app_module.app.url_map.iter_rules() if not _is_demo_rule(r)]
+        endpoints = {e for e in app_module.app.view_functions
+                     if not e.startswith(DEMO_ENDPOINT_PREFIX)}
         post_endpoints = {
             r.endpoint for r in rules
             if "POST" in (set(r.methods) - {"HEAD", "OPTIONS"})
@@ -111,7 +141,8 @@ class RouteInventoryTests(unittest.TestCase):
 class TemplateTests(unittest.TestCase):
 
     def test_template_count(self):
-        files = sorted(TEMPLATE_DIR.glob("*.html"))
+        # 排除 demo.html：它属于演示模式，不计入「22 个业务页面」的对外口径
+        files = _business_templates()
         self.assertEqual(len(files), EXPECTED_TEMPLATES)
 
     def test_base_and_login_present(self):
@@ -140,6 +171,10 @@ class ExceptionLayeringTests(unittest.TestCase):
 
     def _post_blocks(self):
         for decorators, name, block in self.blocks:
+            # 演示路由把异常统一交给 demo_mode.describe_error 翻译，
+            # 不在视图层重复三层捕获，因此排除在「写路由」统计之外。
+            if name.startswith(DEMO_ENDPOINT_PREFIX):
+                continue
             if any("POST" in d for d in decorators):
                 yield name, block
 
@@ -412,6 +447,102 @@ class DbModuleContractTests(unittest.TestCase):
         seg = source[source.index('if action == "delete_user":'):]
         seg = seg[:seg.index("except mysql.connector.errors.IntegrityError")]
         self.assertIn("execute_atomic(", seg)
+
+
+class DemoModeContractTests(unittest.TestCase):
+    """演示模式（HIS_DEMO_MODE）的契约。
+
+    演示模式是答辩/验收辅助功能：免密切换角色 + 一键走完一条就诊闭环。
+    它不计入上面的对外业务规模口径，但**自身的安全边界必须被守住** ——
+    尤其是「默认关闭」与「默认只允许本机」这两条：免密登录等于绕过认证，
+    一旦在公网环境被打开，整套系统就是敞开的。
+    """
+
+    DEMO_MODULE = WEB_APP_DIR / "demo_mode.py"
+
+    def test_module_present(self):
+        self.assertTrue(self.DEMO_MODULE.exists(), "缺少 web_app/demo_mode.py")
+
+    def test_module_does_not_import_app(self):
+        """demo_mode 不能反向 import app，否则会形成循环导入。"""
+        source = _read(self.DEMO_MODULE)
+        self.assertIsNone(
+            re.search(r"^\s*(?:import|from)\s+app\b", source, re.M),
+            "demo_mode.py 不得 import app（应通过 helpers 注入）")
+
+    def test_demo_routes_registered(self):
+        import app as app_module
+        endpoints = set(app_module.app.view_functions)
+        missing = DEMO_ENDPOINTS - endpoints
+        self.assertFalse(missing, "缺少演示路由：%s" % sorted(missing))
+
+    def test_flag_off_unless_env_set(self):
+        import demo_mode
+        with mock.patch.dict(os.environ, {"HIS_DEMO_MODE": ""}):
+            self.assertFalse(demo_mode.demo_enabled(), "默认必须关闭")
+        for truthy in ("1", "true", "YES", "on"):
+            with self.subTest(value=truthy):
+                with mock.patch.dict(os.environ, {"HIS_DEMO_MODE": truthy}):
+                    self.assertTrue(demo_mode.demo_enabled())
+
+    def test_remote_denied_by_default(self):
+        """默认只允许本机：免密登录绝不能顺手暴露到局域网/公网。"""
+        import demo_mode
+        with mock.patch.dict(os.environ, {"HIS_DEMO_ALLOW_REMOTE": ""}):
+            self.assertTrue(demo_mode.remote_allowed("127.0.0.1"))
+            self.assertTrue(demo_mode.remote_allowed("::1"))
+            self.assertTrue(demo_mode.remote_allowed("::ffff:127.0.0.1"))
+            self.assertFalse(demo_mode.remote_allowed("8.8.8.8"))
+            self.assertFalse(demo_mode.remote_allowed("192.168.1.10"))
+        with mock.patch.dict(os.environ, {"HIS_DEMO_ALLOW_REMOTE": "1"}):
+            self.assertTrue(demo_mode.remote_allowed("8.8.8.8"))
+
+    def test_routes_are_gated_when_disabled(self):
+        """未开演示模式时：/demo 退回登录页，/demo/step 与 /demo/reset 直接 403。"""
+        import app as app_module
+        with mock.patch.dict(os.environ, {"HIS_DEMO_MODE": ""}):
+            client = app_module.app.test_client()
+            self.assertEqual(client.get("/demo").status_code, 302)
+            self.assertEqual(client.get("/demo/switch/cash01").status_code, 302)
+            self.assertEqual(
+                client.post("/demo/step", json={"step": "patient"}).status_code, 403)
+            self.assertEqual(client.post("/demo/reset").status_code, 403)
+
+    def test_steps_unique_and_ordered(self):
+        import demo_mode
+        keys = [s["key"] for s in demo_mode.STEPS]
+        self.assertEqual(len(keys), len(set(keys)), "演示步骤 key 不能重复")
+        self.assertEqual(keys[0], "patient", "主线第一步应为患者建档")
+        self.assertEqual(keys[-1], "dispense", "主线最后一步应为发药")
+
+    def test_every_step_is_runnable_and_documented(self):
+        import demo_mode
+        for step in demo_mode.STEPS:
+            with self.subTest(step=step["key"]):
+                self.assertIn(step["key"], demo_mode._RUNNERS)
+                for field in ("actor", "title", "desc", "page", "page_label"):
+                    self.assertTrue(step.get(field),
+                                    "%s 缺少字段 %s" % (step["key"], field))
+
+    def test_unknown_step_returns_error_not_exception(self):
+        """未知步骤要返回结构化错误，而不是抛异常冒到全局 500。"""
+        import demo_mode
+        result = demo_mode.run_step("no-such-step", {})
+        self.assertFalse(result["ok"])
+        self.assertIn("未知", result["error"])
+
+    def test_helpers_reuse_app_implementations(self):
+        """演示模式必须复用 app 里的实现，不得自己另写一套逻辑。"""
+        import app as app_module
+        self.assertIs(app_module._DEMO_HELPERS["make_no"], app_module.make_no)
+        self.assertIs(app_module._DEMO_HELPERS["auto_flag"], app_module.auto_flag)
+        self.assertIs(app_module._DEMO_HELPERS["derive_sample_type"],
+                      app_module.derive_sample_type)
+
+    def test_demo_state_file_is_gitignored(self):
+        """演示状态属运行期数据，不得提交到仓库。"""
+        gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("_demo_state.json", gitignore)
 
 
 if __name__ == "__main__":

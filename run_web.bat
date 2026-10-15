@@ -46,12 +46,20 @@ echo [3/4] MySQL: OK (port 3306)
 if errorlevel 1 goto DBFAIL
 
 rem ================= 4. Start Web =================
+
+rem 开启演示模式：多出 /demo 控制台（免密切换角色 + 一键走完就诊闭环）。
+rem 仅本机可访问；不需要时把这行注释掉，就回到「只能正常登录」的状态。
+set "HIS_DEMO_MODE=1"
+
 echo [4/4] Starting web service ...
 echo.
 echo ------------------------------------------------------------
 echo   Open in browser:  http://127.0.0.1:5000
+echo   Demo console:     http://127.0.0.1:5000/demo   ^<-- 演示从这里进
 echo   Test accounts:    admin01 / cash01 / doctor01 / lab01 / pharm01
 echo   Default password: 123456
+echo.
+echo   演示模式已开启：/demo 可免密切换角色并一键跑完整条就诊闭环。
 echo.
 echo   KEEP THIS WINDOW OPEN. Closing it stops the service.
 echo ------------------------------------------------------------

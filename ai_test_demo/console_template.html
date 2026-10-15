@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI + 测试 演示台 · 医院门诊管理系统</title>
+<style>
+:root{
+  --bg:#f4f4f5; --panel:#ffffff; --ink:#18181b; --muted:#71717a; --rule:#e4e4e7;
+  --soft:#fafafa; --accent:#18181b; --ok:#166534; --warn:#92400e; --bad:#991b1b;
+  --blue:#1d4ed8; --chip:#f4f4f5;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif;line-height:1.65;font-size:14px}
+header{background:#111111;color:#f9fafb;padding:18px 26px}
+header .bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.22rem;font-weight:800;letter-spacing:.3px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:.74rem;padding:3px 10px;
+  border-radius:999px;background:rgba(255,255,255,.12);color:#e5e7eb}
+.badge.local{background:#3f6212;color:#ecfccb}
+header .sub{color:#a1a1aa;font-size:.8rem;margin-top:6px}
+.meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:.76rem;color:#cbd5e1}
+.meta b{color:#ffffff;font-weight:700}
+main{max-width:1280px;margin:0 auto;padding:22px 26px 60px}
+nav.tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+nav.tabs button{border:1px solid var(--rule);background:var(--panel);color:var(--ink);
+  padding:9px 18px;border-radius:10px;cursor:pointer;font-size:.86rem;font-weight:600;
+  font-family:inherit;transition:.15s}
+nav.tabs button:hover{border-color:#a1a1aa}
+nav.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:14px;
+  box-shadow:0 1px 3px rgba(24,24,27,.05);padding:20px}
+.cols{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
+@media(max-width:940px){.cols{grid-template-columns:1fr}}
+h2{font-size:1rem;margin:0 0 12px;font-weight:800}
+h3{font-size:.86rem;margin:18px 0 8px;font-weight:700;color:#3f3f46;
+  display:flex;align-items:center;gap:8px}
+h3:first-child{margin-top:0}
+p.note{color:var(--muted);font-size:.8rem;margin:0 0 12px}
+label{display:block;font-size:.78rem;color:var(--muted);margin:0 0 6px;font-weight:600}
+select,textarea,input{width:100%;font-family:inherit;font-size:.84rem;color:var(--ink);
+  background:var(--soft);border:1px solid var(--rule);border-radius:9px;padding:9px 11px;outline:none}
+select:focus,textarea:focus{border-color:#a1a1aa;background:#fff}
+textarea{min-height:280px;resize:vertical;font-family:Consolas,"Courier New",monospace;
+  font-size:.78rem;line-height:1.6;white-space:pre;overflow-wrap:normal;overflow-x:auto}
+button.act{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:10px 18px;
+  font-size:.84rem;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
+button.act:hover{background:#000}
+button.act:disabled{background:#a1a1aa;cursor:not-allowed}
+button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:9px;
+  padding:8px 14px;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit}
+button.ghost:hover{border-color:#a1a1aa;background:var(--soft)}
+button.ghost:disabled{color:#a1a1aa;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mt{margin-top:12px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--soft);border:1px solid var(--rule);border-radius:10px;padding:10px 12px}
+.stat .k{font-size:.72rem;color:var(--muted);font-weight:600}
+.stat .v{font-size:1.3rem;font-weight:800;line-height:1.3}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{background:var(--soft);font-weight:700;color:#3f3f46;position:sticky;top:0;z-index:1;
+  font-size:.75rem;white-space:nowrap}
+tbody tr:hover{background:#fcfcfd}
+.tbl-wrap{max-height:620px;overflow:auto;border:1px solid var(--rule);border-radius:10px}
+.tbl-wrap table{min-width:960px}
+.toolbar{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.toolbar .tb-item{min-width:280px;flex:0 0 auto}
+.toolbar .spacer{margin-left:auto;color:var(--muted);font-size:.78rem;align-self:center}
+.facts{display:flex;flex-wrap:wrap;gap:7px 22px;font-size:.8rem;margin-top:4px}
+.facts .fact{display:inline-flex;align-items:center;gap:6px}
+.facts .fact b{color:var(--muted);font-weight:700}
+code{font-family:Consolas,"Courier New",monospace;background:var(--chip);border-radius:5px;
+  padding:1px 5px;font-size:.76rem}
+.chip{display:inline-block;font-size:.7rem;padding:2px 8px;border-radius:999px;
+  background:var(--chip);color:#3f3f46;white-space:nowrap;font-weight:600}
+.chip.p1{background:#fee2e2;color:#991b1b}
+.chip.p2{background:#fef3c7;color:#92400e}
+.chip.p3{background:#e0e7ff;color:#3730a3}
+.chip.ok{background:#dcfce7;color:#166534}
+.chip.no{background:#f4f4f5;color:#71717a}
+.chip.blue{background:#dbeafe;color:#1d4ed8}
+.card{border:1px solid var(--rule);border-radius:12px;padding:16px;background:var(--panel)}
+.card.hit{border-color:#166534;background:#f0fdf4}
+.card.miss{border-color:#d4d4d8;background:var(--soft)}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:6px 12px;font-size:.82rem}
+.kv .k{color:var(--muted);font-weight:700}
+.bar{height:8px;border-radius:999px;background:var(--rule);overflow:hidden;margin:6px 0 0}
+.bar i{display:block;height:100%;background:#166534}
+.warnbox{background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:11px 14px;
+  font-size:.8rem;color:#78350f;margin-bottom:14px}
+.warnbox b{color:#92400e}
+.hidden{display:none}
+.mono{font-family:Consolas,"Courier New",monospace;font-size:.76rem}
+.foot{color:var(--muted);font-size:.75rem;margin-top:16px;text-align:center}
+details summary{cursor:pointer;font-weight:700;font-size:.82rem;color:#3f3f46;padding:6px 0}
+details[open] summary{margin-bottom:6px}
+ol,ul{margin:6px 0 0;padding-left:20px}
+li{margin:2px 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>AI + 测试 演示台</h1>
+    <span class="badge local" id="engineBadge">● 引擎：本地规则推理（离线）</span>
+    <span class="badge">数据源：真实解析本项目 schema 与路由</span>
+  </div>
+  <div class="sub" id="hdSub">把「读懂数据库约束」这件事交给引擎，测试用例就不再靠人一条条手写。</div>
+  <div class="meta" id="hdMeta"></div>
+</header>
+
+<main>
+  <div class="warnbox" id="offlineNote">
+    <b>说明：</b>本演示台运行在<b>本地规则推理引擎</b>上，全程离线、不调用任何大模型
+    —— 它把「表约束 → 异常分层 → 用例」的推导规则固化成代码，因此结论可复核、可复现。
+    <span id="llmHint"></span>
+  </div>
+  <nav class="tabs">
+    <button data-tab="t1" class="on">① 智能用例生成</button>
+    <button data-tab="t2">② 失败智能归因</button>
+    <button data-tab="t3">③ 覆盖缺口分析</button>
+  </nav>
+
+  <!-- ============ Tab 1 ============ -->
+  <section id="t1">
+    <div class="panel">
+      <div class="toolbar">
+        <div class="tb-item">
+          <label for="modSel">业务模块</label>
+          <select id="modSel"></select>
+        </div>
+        <button class="act" id="btnGen">推导测试用例</button>
+        <button class="ghost" id="btnCsv" disabled>导出禅道 CSV</button>
+        <span class="spacer">模块与约束实时解析自 <code>sql/*.sql</code> 与 <code>web_app/app.py</code></span>
+      </div>
+      <div id="modInfo" class="mt"></div>
+      <p class="note mt" style="margin-bottom:0">推导规则：正常流 · 必填缺失（含接口必填参数） · 唯一冲突 ·
+        ENUM 非法值 · 数值下界 · 长度超限 · 外键悬空 · 业务规则（动作 / 存储过程）。</p>
+    </div>
+
+    <div class="panel mt">
+      <div class="stats" id="genStats"></div>
+      <div id="genOut"><p class="note">请选择业务模块后点击「推导测试用例」。</p></div>
+    </div>
+  </section>
+
+  <!-- ============ Tab 2 ============ -->
+  <section id="t2" class="hidden">
+    <div class="cols">
+      <div class="panel">
+        <h2>粘贴测试失败输出</h2>
+        <p class="note">支持 <code>unittest</code> 的 Traceback、MySQL 错误码与存储过程报错。</p>
+        <textarea id="logIn" placeholder="把被测出的失败日志粘到这里……"></textarea>
+        <div class="row mt">
+          <button class="act" id="btnDiag">智能归因</button>
+          <button class="ghost" id="btnMd" disabled>导出缺陷报告</button>
+        </div>
+        <div class="mt">
+          <label>没有日志？载入本仓库真实踩过的样例：</label>
+          <div class="row" id="sampleRow"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div id="diagOut"><p class="note">归因结果会显示：命中规则、严重级、所属异常层、根因、复现步骤、修复建议与回归守卫。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Tab 3 ============ -->
+  <section id="t3" class="hidden">
+    <div class="panel">
+      <h2>路由 × 用例 覆盖缺口</h2>
+      <p class="note">用「路径静态引用」近似判定某条路由是否被自动化用例触达；未覆盖项即下一批用例的编写清单。</p>
+      <div class="stats" id="covStats"></div>
+      <div class="row" style="margin-bottom:10px">
+        <button class="ghost" id="btnFilter">只看未覆盖</button>
+      </div>
+      <div class="tbl-wrap"><table id="covTbl">
+        <thead><tr><th>路由</th><th>方法</th><th>权限键</th><th>存储过程</th>
+          <th>用例引用</th><th>状态</th></tr></thead><tbody></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <div class="foot" id="foot"></div>
+</main>
+
+<script>
+const DATA = /*__DEMO_DATA__*/null;
+
+/* ============================ 公共 ============================ */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+
+document.querySelectorAll("nav.tabs button").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("nav.tabs button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    ["t1","t2","t3"].forEach(id => $("#"+id).classList.toggle("hidden", id !== b.dataset.tab));
+  };
+});
+
+/* 头部信息 */
+(function(){
+  const m = DATA.meta;
+  $("#hdMeta").innerHTML =
+    `<span>解析表 <b>${m.tables}</b> 张 / 字段 <b>${m.columns}</b> 个</span>` +
+    `<span>路由 <b>${m.routes}</b> 条</span>` +
+    `<span>业务模块 <b>${m.modules}</b> 个</span>` +
+    `<span>已被用例触达的路由 <b>${m.covered_routes}</b> / ${m.routes}</span>`;
+  $("#llmHint").innerHTML = `当前引擎：<b>${esc(m.engine)}</b>；` +
+    `推理接口已抽出（<code>ask()</code>），换用大模型时只需替换该函数，` +
+    `下方的推导规则、导出格式与页面结构都不用改。`;
+  $("#foot").textContent = `${m.project} · 演示台生成于 ${m.generated_at} · 离线运行`;
+})();
+
+/* ============================ Tab 1：用例生成 ============================ */
+const MSG = {
+  required: "必填参数不能为空，请检查后重试。",
+  unique: "已存在，请更换后重试。",
+  enum: "提交的取值不在该字段允许的范围内，请检查后重试。",
+  range: "输入数值超出允许范围，请检查后重试。",
+  length: "输入内容超出字段长度限制，请缩短后重试。",
+  fk: "关联的数据不存在或已被删除，请刷新页面后重试。"
+};
+
+const MODS = DATA.modules;
+const sel = $("#modSel");
+MODS.forEach((m, i) => {
+  const o = document.createElement("option");
+  o.value = i;
+  o.textContent = `${m.name}　（${m.route}）`;
+  sel.appendChild(o);
+});
+
+let CASES = [];
+let CURRENT = null;
+
+/* ---------------------------------------------------------------
+   引擎接口层（可插拔）
+   ---------------------------------------------------------------
+   gen() / diag() 是「怎么推」的知识，ask() 是「谁来推」的接口。
+   当前 ask() 直接调用本地规则引擎，全程离线、零依赖。
+   要换成真实大模型时，只需要把 ask() 改成异步请求（例如把任务类型
+   + 已解析的结构化事实 + 用户输入一起发给模型），然后让 btnGen /
+   btnDiag 走 async 分支即可 —— 下面的推导规则、导出格式、页面结构
+   一行都不用改。
+   --------------------------------------------------------------- */
+function ask(task, payload) {
+  switch (task) {
+    case "gen_cases":  return gen(payload.module);
+    case "diagnose":   return diag(payload.text);
+    default: throw new Error("未知任务：" + task);
+  }
+}
+
+function renderModInfo(m) {
+  const adopted = m.required.length + m.unique.length + m.enums.length +
+                  m.checks.length + m.varchar.length + m.fks.length;
+  const skipped = (m.skipped || []);
+  $("#modInfo").innerHTML = `
+    <div class="facts">
+      <span class="fact"><b>路由</b><code>${esc(m.route)}</code>
+        ${m.method.map(x=>`<span class="chip blue">${esc(x)}</span>`).join(" ")}</span>
+      <span class="fact"><b>权限键</b>${m.perm ? `<code>${esc(m.perm)}</code>` : "（仅需登录）"}</span>
+      <span class="fact"><b>涉及表</b>${m.tables.map(t=>`<code>${esc(t)}</code>`).join(" ")}</span>
+      <span class="fact"><b>存储过程</b>${m.procs.length ? m.procs.map(p=>`<code>${esc(p)}</code>`).join(" ") : "—"}</span>
+      <span class="fact"><b>表单字段</b>${m.form_fields.length} 个</span>
+      <span class="fact"><b>采纳约束</b>${adopted} 处
+        （必填 ${m.required.length} · 唯一 ${m.unique.length} · 枚举 ${m.enums.length} ·
+         下界 ${m.checks.length} · 定长 ${m.varchar.length} · 外键 ${m.fks.length}）</span>
+    </div>
+    ${skipped.length ? `<details class="mt">
+      <summary>另有 ${skipped.length} 处约束不面向表单，已自动跳过（点开看清单）</summary>
+      <p class="note">这些列由存储过程 / 服务端生成（如挂号单号、操作员、审计时间），
+        用户根本不会提交它们 —— 据此生成「不填 XX」的用例是假用例，因此引擎把它们排除在外。</p>
+      <div>${skipped.map(s=>`<span class="chip">${esc(s.table)}.${esc(s.col)}</span>`).join(" ")}</div>
+    </details>` : ""}`;
+}
+
+function pre(m) {
+  return `1. 已启动系统并初始化数据库\n2. 以有权访问「${m.name}」的账号登录（${m.perm ? "权限键 " + m.perm : "任意已登录账号"}）\n3. 打开 ${m.route}`;
+}
+
+function gen(m) {
+  const out = [];
+  let n = 0;
+  const push = (o) => { n++; out.push(Object.assign({
+    id: `TC-${m.code}-${String(n).padStart(3, "0")}`,
+    module: m.name, pre: pre(m), type: "功能测试", stage: "系统测试"
+  }, o)); };
+
+  // A 正常流
+  push({ pri:"P1", kw:"正常流",
+    title:`${m.name}：按合法数据提交，业务应处理成功`,
+    steps:`1. 打开 ${m.route}\n2. 各必填项填入合法值\n3. 提交`,
+    expect:`接口正常返回并给出成功提示（${m.successHint}…）；库中对应记录按预期新增 / 变更，状态与金额正确。` });
+
+  // B 必填校验（每个 NOT NULL 且无默认值的列）
+  m.required.slice(0, 12).forEach(c => push({ pri:"P2", kw:"必填校验",
+    title:`${m.name}：不填「${c.label}」提交，应给出可读提示`,
+    steps:`1. 打开 ${m.route}\n2. 其余字段正常填写，唯独「${c.label}」留空\n3. 提交`,
+    expect:`不冒 500；提示「${c.label}不能为空，请填写后重试。」（${MSG.required}）——由第 3 层参数异常兜底。` }));
+
+  // B2 接口契约上必填、但 schema 推不出来的字段（自增主键 / 服务端填充）
+  (m.app_required || []).forEach(f => push({ pri:"P2", kw:"必填校验",
+    title:`${m.name}：不传接口必填参数「${f}」，应被第 3 层参数异常兜住`,
+    steps:`1. 直接构造 POST 到 ${m.route}\n2. 不提交「${f}」（其余参数正常）\n3. 提交`,
+    expect:`应用侧用 request.form["${f}"] 直接下标取值 → 抛 KeyError；` +
+           `必须由第 3 层（KeyError/TypeError/ValueError → handle_param_error）兜成「必填参数不能为空」，` +
+           `不能冒成 500 页面。` }));
+
+  // C 唯一冲突
+  m.unique.forEach(c => push({ pri:"P1", kw:"唯一性",
+    title:`${m.name}：提交已存在的「${c.hint}」，应被唯一约束拦下`,
+    steps:`1. 先造一条使用「${c.hint}」= X 的记录\n2. 再提交一条使用相同「${c.hint}」的记录\n3. 提交`,
+    expect:`MySQL 1062 → 第 1 层 IntegrityError；提示「${c.hint}${MSG.unique}」，库里不产生第二条重复记录。` }));
+
+  // D ENUM 非法值
+  m.enums.forEach(c => push({ pri:"P2", kw:"取值校验",
+    title:`${m.name}：「${c.label}」传 ENUM 之外的取值，应被拦下`,
+    steps:`1. 直接构造 POST，把「${c.label}」传成不在 [${c.values.join(" / ")}] 内的值\n2. 提交`,
+    expect:`MySQL 1265 Data truncated → 第 2 层 mysql.connector.Error；提示「${MSG.enum}」。` +
+           `注意：该异常不是 IntegrityError，放在第 1 层永远不会生效。` }));
+
+  // E 数值下界
+  m.checks.forEach(c => push({ pri:"P2", kw:"边界值",
+    title:`${m.name}：「${c.label}」取下界之外的边界值（${c.op} ${c.value} 不成立）`,
+    steps:`1. 打开 ${m.route}\n2. 把「${c.label}」填成违反 ${c.op} ${c.value} 的值（如负数）\n3. 提交`,
+    expect:`CHECK 约束拒绝写入；提示「${MSG.range}」，不冒 500。` }));
+
+  // F 长度边界
+  m.varchar.slice(0, 10).forEach(c => push({ pri:"P3", kw:"长度边界",
+    title:`${m.name}：「${c.label}」提交超长内容（VARCHAR(${c.length}) + 1 字符）`,
+    steps:`1. 把「${c.label}」填入 ${c.length + 1} 个字符\n2. 提交`,
+    expect:`MySQL 1406 Data too long → 第 2 层；提示「${MSG.length}」。前端 maxlength 不能替代服务端兜底。` }));
+
+  // G 外键悬空
+  m.fks.forEach(c => push({ pri:"P2", kw:"外键完整性",
+    title:`${m.name}：「${c.label}」引用不存在的 ${c.ref}，应被拦下`,
+    steps:`1. 直接把「${c.label}」传成一个不存在的 id（如 999999999）\n2. 提交`,
+    expect:`MySQL 1452 → 第 1 层；提示「${MSG.fk}」。` +
+           `同类陷阱：把 doctors.doctor_id 当 users.user_id 写入审计字段，会导致部分账号每次操作必失败。` }));
+
+  // H 业务规则（由路由 action 与存储过程推导，schema 约束推不出来的那部分）
+  const acts = (m.actions || []).filter(a => a !== "add" && a !== "add_test");
+  acts.forEach(a => push({ pri:"P2", kw:"业务规则",
+    title:`${m.name}：前置状态不满足时执行「${a}」，应被拒绝并整体回滚`,
+    steps:`1. 先造一条不满足「${a}」前置条件的记录（状态不对 / 已被其它单据引用）\n2. 触发「${a}」`,
+    expect:`存储过程内 SIGNAL 抛出业务错误 → 第 2 层兜底成可读提示；` +
+           `事务整体回滚，不允许出现「改了一半」的脏数据。` }));
+
+  m.procs.forEach(p => push({ pri:"P1", kw:"业务规则",
+    title:`${m.name}：${p} 的前置条件与幂等性`,
+    steps:`1. 准备满足前置条件的单据\n2. 调用 ${p}\n3. 对同一单据重复调用一次`,
+    expect:`首次成功；重复调用给出业务提示而不是重复写库/重复扣减。` +
+           `过程内应使用显式事务与 EXIT HANDLER，异常时 ROLLBACK 并 RESIGNAL。` }));
+
+  return out;
+}
+
+function renderCases(list) {
+  const groups = {};
+  list.forEach(c => (groups[c.kw] = groups[c.kw] || []).push(c));
+  const order = ["正常流","必填校验","唯一性","取值校验","边界值","长度边界","外键完整性","业务规则"];
+  const rows = [];
+  order.filter(k => groups[k]).forEach(k => {
+    rows.push(`<tr><td colspan="4" style="background:#f4f4f5;font-weight:800;color:#18181b">
+      ${esc(k)}（${groups[k].length} 条）</td></tr>`);
+    groups[k].forEach(c => {
+      rows.push(`<tr>
+        <td class="mono" style="white-space:nowrap">${esc(c.id)}<div class="mt"><span class="chip ${c.pri.toLowerCase()}">${esc(c.pri)}</span></div></td>
+        <td style="min-width:260px"><b>${esc(c.title)}</b></td>
+        <td style="white-space:pre-wrap;color:#52525b;min-width:240px">${esc(c.steps)}</td>
+        <td style="white-space:pre-wrap;min-width:340px">${esc(c.expect)}</td>
+      </tr>`);
+    });
+  });
+  $("#genOut").innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>用例编号 / 优先级</th><th>用例标题</th><th>测试步骤</th><th>预期结果</th></tr></thead>
+    <tbody>${rows.join("")}</tbody></table></div>`;
+
+  const byP = {P1:0,P2:0,P3:0};
+  list.forEach(c => byP[c.pri]++);
+  const uniq = DATA.modules.find(x => x.code === CURRENT.code).unique.length;
+  $("#genStats").innerHTML = `
+    <div class="stat"><div class="k">推导用例总数</div><div class="v">${list.length}</div></div>
+    <div class="stat"><div class="k">P1 / P2 / P3</div><div class="v">${byP.P1} / ${byP.P2} / ${byP.P3}</div></div>
+    <div class="stat"><div class="k">覆盖约束类型</div><div class="v">${new Set(list.map(c=>c.kw)).size} 类</div></div>
+    <div class="stat"><div class="k">来自真实 schema</div><div class="v">${uniq}<span style="font-size:.7rem;color:#71717a"> 处唯一键</span></div></div>`;
+}
+
+$("#btnGen").onclick = () => {
+  CURRENT = MODS[+sel.value];
+  renderModInfo(CURRENT);
+  CASES = ask("gen_cases", {module: CURRENT});
+  renderCases(CASES);
+  $("#btnCsv").disabled = false;
+};
+sel.onchange = () => { renderModInfo(MODS[+sel.value]); };
+
+// 打开即推导一次，避免首屏留白（也方便直接截图入报告）
+$("#btnGen").click();
+
+/* 导出禅道格式 CSV（字段与 gen_testcases.py 对齐） */
+function csvCell(v) { return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; }
+function download(name, text, mime) {
+  const blob = new Blob(["\ufeff" + text], {type: mime || "text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+$("#btnCsv").onclick = () => {
+  if (!CASES.length) return;
+  const head = ["用例编号","所属模块","用例标题","前置条件","测试步骤","预期结果",
+                "优先级","用例类型","适用阶段","关键词"];
+  const lines = [head.map(csvCell).join(",")];
+  CASES.forEach(c => lines.push([c.id,c.module,c.title,c.pre,c.steps,c.expect,
+                                 c.pri,c.type,c.stage,c.kw].map(csvCell).join(",")));
+  download(`AI推导测试用例_${CURRENT.code}.csv`, lines.join("\r\n"));
+};
+
+sel.selectedIndex = 0;
+
+/* ============================ Tab 2：失败智能归因 ============================ */
+const RULES = DATA.rules;
+const SAMPLES = DATA.samples;
+const srow = $("#sampleRow");
+SAMPLES.forEach((s, i) => {
+  const b = document.createElement("button");
+  b.className = "ghost";
+  b.textContent = s.name;
+  b.onclick = () => { $("#logIn").value = s.output; $("#btnDiag").click(); };
+  srow.appendChild(b);
+});
+
+function diag(text) {
+  const hits = [];
+  RULES.forEach(r => {
+    let score = 0, why = [];
+    const m = r.match || {};
+    if (m.errno && text.includes(m.errno)) { score += 3; why.push("错误码 " + m.errno); }
+    if (m.extype && text.includes(m.extype)) { score += 2; why.push("异常类型 " + m.extype); }
+    (m.kw || []).forEach(k => { if (text.includes(k)) { score += 2; why.push("关键字 " + k); } });
+    if (score > 0) hits.push({rule: r, score, why});
+  });
+  hits.sort((a,b) => b.score - a.score);
+  if (!hits.length) return null;
+  return {best: hits[0], others: hits.slice(1, 4)};
+}
+
+function renderDiag(res, text) {
+  if (!res) {
+    $("#diagOut").innerHTML = `<p class="note">没有匹配到已知规则。可补充日志中的错误码
+      （1062 / 1452 / 1048 / 1451 / 1265 / 1406 / 1304）或异常类型后重试。</p>`;
+    return;
+  }
+  const r = res.best.rule;
+  const conf = res.best.score >= 5 ? "高" : res.best.score >= 3 ? "中" : "低";
+  $("#diagOut").innerHTML = `
+    <div class="card hit">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <h2 style="margin:0">${esc(r.title)}</h2>
+        <span class="chip ${conf === "高" ? "p1" : conf === "中" ? "p2" : "p3"}">置信度 ${conf}</span>
+      </div>
+      <div class="kv mt">
+        <div class="k">规则编号</div><div><code>${esc(r.id)}</code></div>
+        <div class="k">严重级</div><div><b>${esc(r.severity)}</b></div>
+        <div class="k">所属层</div><div>${esc(r.layer)}</div>
+        <div class="k">命中依据</div><div>${res.best.why.map(w=>`<span class="chip blue">${esc(w)}</span>`).join(" ")}</div>
+      </div>
+      <h3>根因分析</h3><p>${esc(r.cause)}</p>
+      <h3>复现步骤</h3><ol><li>${esc(r.repro).replace(/\n/g,"</li><li>")}</li></ol>
+      <h3>修复建议</h3><p>${esc(r.fix)}</p>
+      <h3>回归守卫（已固化的用例）</h3><p><code>${esc(r.guard)}</code></p>
+    </div>
+    ${res.others.length ? `<h3>其他可能相关的规则</h3><div class="row">${
+      res.others.map(o => `<span class="chip">${esc(o.rule.title)}（命中 ${o.score}）</span>`).join("")
+    }</div>` : ""}`;
+}
+
+$("#btnDiag").onclick = () => {
+  const t = $("#logIn").value;
+  if (!t.trim()) { $("#diagOut").innerHTML = `<p class="note">请先粘贴失败日志，或点上面的样例按钮。</p>`; return; }
+  const res = ask("diagnose", {text: t});
+  renderDiag(res, t);
+  $("#btnMd").disabled = !res;
+  window.__lastDiag = res ? {res, text: t} : null;
+};
+
+$("#btnMd").onclick = () => {
+  const st = window.__lastDiag;
+  if (!st) return;
+  const r = st.res.best.rule;
+  const md = [
+    `# 缺陷报告 · ${r.title}`, "",
+    `- **规则编号**：${r.id}`,
+    `- **严重级**：${r.severity}`,
+    `- **所属异常层**：${r.layer}`,
+    `- **命中依据**：${st.res.best.why.join("；")}`,
+    `- **生成时间**：${DATA.meta.generated_at}`, "",
+    "## 一、根因分析", "", r.cause, "",
+    "## 二、复现步骤", "", r.repro, "",
+    "## 三、修复建议", "", r.fix, "",
+    "## 四、回归守卫", "", `已固化用例：\`${r.guard}\``, "",
+    "## 五、原始失败日志（节选）", "", "```", st.text.trim().slice(0, 2000), "```", ""
+  ].join("\n");
+  download("缺陷报告.md", md, "text/markdown;charset=utf-8");
+};
+
+/* ============================ Tab 3：覆盖缺口 ============================ */
+const ROUTES = DATA.routes.slice().sort((a,b) => a.test_refs - b.test_refs || a.path.localeCompare(b.path));
+let onlyGap = false;
+
+function renderCov() {
+  const list = onlyGap ? ROUTES.filter(r => r.test_refs === 0) : ROUTES;
+  const tb = $("#covTbl tbody");
+  tb.innerHTML = list.map(r => `<tr>
+    <td><code>${esc(r.path)}</code><div style="color:#71717a;font-size:.74rem">${esc(r.endpoint)}()</div></td>
+    <td>${r.methods.map(x=>`<span class="chip blue">${esc(x)}</span>`).join(" ")}</td>
+    <td>${r.perm ? `<code>${esc(r.perm)}</code>` : "—"}</td>
+    <td class="mono" style="color:#52525b">${r.procs.length ? r.procs.map(esc).join("<br>") : "—"}</td>
+    <td>${r.test_refs ? `<b>${r.test_refs}</b>` : "0"}</td>
+    <td>${r.test_refs ? `<span class="chip ok">已覆盖</span>` : `<span class="chip no">未覆盖</span>`}</td>
+  </tr>`).join("");
+
+  const total = ROUTES.length, cov = ROUTES.filter(r => r.test_refs > 0).length;
+  const pct = Math.round(cov / total * 100);
+  $("#covStats").innerHTML = `
+    <div class="stat"><div class="k">路由总数</div><div class="v">${total}</div></div>
+    <div class="stat"><div class="k">被用例触达</div><div class="v">${cov}</div></div>
+    <div class="stat"><div class="k">缺口</div><div class="v" style="color:#991b1b">${total - cov}</div></div>
+    <div class="stat"><div class="k">路由触达率</div><div class="v">${pct}%<div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
+}
+$("#btnFilter").onclick = (e) => {
+  onlyGap = !onlyGap;
+  e.target.textContent = onlyGap ? "显示全部路由" : "只看未覆盖";
+  renderCov();
+};
+renderCov();
+</script>
+</body>
+</html>

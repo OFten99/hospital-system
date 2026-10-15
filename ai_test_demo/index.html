@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI + 测试 演示台 · 医院门诊管理系统</title>
+<style>
+:root{
+  --bg:#f4f4f5; --panel:#ffffff; --ink:#18181b; --muted:#71717a; --rule:#e4e4e7;
+  --soft:#fafafa; --accent:#18181b; --ok:#166534; --warn:#92400e; --bad:#991b1b;
+  --blue:#1d4ed8; --chip:#f4f4f5;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif;line-height:1.65;font-size:14px}
+header{background:#111111;color:#f9fafb;padding:18px 26px}
+header .bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.22rem;font-weight:800;letter-spacing:.3px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:.74rem;padding:3px 10px;
+  border-radius:999px;background:rgba(255,255,255,.12);color:#e5e7eb}
+.badge.local{background:#3f6212;color:#ecfccb}
+header .sub{color:#a1a1aa;font-size:.8rem;margin-top:6px}
+.meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:.76rem;color:#cbd5e1}
+.meta b{color:#ffffff;font-weight:700}
+main{max-width:1280px;margin:0 auto;padding:22px 26px 60px}
+nav.tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+nav.tabs button{border:1px solid var(--rule);background:var(--panel);color:var(--ink);
+  padding:9px 18px;border-radius:10px;cursor:pointer;font-size:.86rem;font-weight:600;
+  font-family:inherit;transition:.15s}
+nav.tabs button:hover{border-color:#a1a1aa}
+nav.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:14px;
+  box-shadow:0 1px 3px rgba(24,24,27,.05);padding:20px}
+.cols{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
+@media(max-width:940px){.cols{grid-template-columns:1fr}}
+h2{font-size:1rem;margin:0 0 12px;font-weight:800}
+h3{font-size:.86rem;margin:18px 0 8px;font-weight:700;color:#3f3f46;
+  display:flex;align-items:center;gap:8px}
+h3:first-child{margin-top:0}
+p.note{color:var(--muted);font-size:.8rem;margin:0 0 12px}
+label{display:block;font-size:.78rem;color:var(--muted);margin:0 0 6px;font-weight:600}
+select,textarea,input{width:100%;font-family:inherit;font-size:.84rem;color:var(--ink);
+  background:var(--soft);border:1px solid var(--rule);border-radius:9px;padding:9px 11px;outline:none}
+select:focus,textarea:focus{border-color:#a1a1aa;background:#fff}
+textarea{min-height:280px;resize:vertical;font-family:Consolas,"Courier New",monospace;
+  font-size:.78rem;line-height:1.6;white-space:pre;overflow-wrap:normal;overflow-x:auto}
+button.act{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:10px 18px;
+  font-size:.84rem;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
+button.act:hover{background:#000}
+button.act:disabled{background:#a1a1aa;cursor:not-allowed}
+button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:9px;
+  padding:8px 14px;font-size:.8rem;font-weight:600;cursor:pointer;font-family:inherit}
+button.ghost:hover{border-color:#a1a1aa;background:var(--soft)}
+button.ghost:disabled{color:#a1a1aa;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mt{margin-top:12px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--soft);border:1px solid var(--rule);border-radius:10px;padding:10px 12px}
+.stat .k{font-size:.72rem;color:var(--muted);font-weight:600}
+.stat .v{font-size:1.3rem;font-weight:800;line-height:1.3}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{background:var(--soft);font-weight:700;color:#3f3f46;position:sticky;top:0;z-index:1;
+  font-size:.75rem;white-space:nowrap}
+tbody tr:hover{background:#fcfcfd}
+.tbl-wrap{max-height:620px;overflow:auto;border:1px solid var(--rule);border-radius:10px}
+.tbl-wrap table{min-width:960px}
+.toolbar{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.toolbar .tb-item{min-width:280px;flex:0 0 auto}
+.toolbar .spacer{margin-left:auto;color:var(--muted);font-size:.78rem;align-self:center}
+.facts{display:flex;flex-wrap:wrap;gap:7px 22px;font-size:.8rem;margin-top:4px}
+.facts .fact{display:inline-flex;align-items:center;gap:6px}
+.facts .fact b{color:var(--muted);font-weight:700}
+code{font-family:Consolas,"Courier New",monospace;background:var(--chip);border-radius:5px;
+  padding:1px 5px;font-size:.76rem}
+.chip{display:inline-block;font-size:.7rem;padding:2px 8px;border-radius:999px;
+  background:var(--chip);color:#3f3f46;white-space:nowrap;font-weight:600}
+.chip.p1{background:#fee2e2;color:#991b1b}
+.chip.p2{background:#fef3c7;color:#92400e}
+.chip.p3{background:#e0e7ff;color:#3730a3}
+.chip.ok{background:#dcfce7;color:#166534}
+.chip.no{background:#f4f4f5;color:#71717a}
+.chip.blue{background:#dbeafe;color:#1d4ed8}
+.card{border:1px solid var(--rule);border-radius:12px;padding:16px;background:var(--panel)}
+.card.hit{border-color:#166534;background:#f0fdf4}
+.card.miss{border-color:#d4d4d8;background:var(--soft)}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:6px 12px;font-size:.82rem}
+.kv .k{color:var(--muted);font-weight:700}
+.bar{height:8px;border-radius:999px;background:var(--rule);overflow:hidden;margin:6px 0 0}
+.bar i{display:block;height:100%;background:#166534}
+.warnbox{background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:11px 14px;
+  font-size:.8rem;color:#78350f;margin-bottom:14px}
+.warnbox b{color:#92400e}
+.hidden{display:none}
+.mono{font-family:Consolas,"Courier New",monospace;font-size:.76rem}
+.foot{color:var(--muted);font-size:.75rem;margin-top:16px;text-align:center}
+details summary{cursor:pointer;font-weight:700;font-size:.82rem;color:#3f3f46;padding:6px 0}
+details[open] summary{margin-bottom:6px}
+ol,ul{margin:6px 0 0;padding-left:20px}
+li{margin:2px 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>AI + 测试 演示台</h1>
+    <span class="badge local" id="engineBadge">● 引擎：本地规则推理（离线）</span>
+    <span class="badge">数据源：真实解析本项目 schema 与路由</span>
+  </div>
+  <div class="sub" id="hdSub">把「读懂数据库约束」这件事交给引擎，测试用例就不再靠人一条条手写。</div>
+  <div class="meta" id="hdMeta"></div>
+</header>
+
+<main>
+  <div class="warnbox" id="offlineNote">
+    <b>说明：</b>本演示台运行在<b>本地规则推理引擎</b>上，全程离线、不调用任何大模型
+    —— 它把「表约束 → 异常分层 → 用例」的推导规则固化成代码，因此结论可复核、可复现。
+    <span id="llmHint"></span>
+  </div>
+  <nav class="tabs">
+    <button data-tab="t1" class="on">① 智能用例生成</button>
+    <button data-tab="t2">② 失败智能归因</button>
+    <button data-tab="t3">③ 覆盖缺口分析</button>
+  </nav>
+
+  <!-- ============ Tab 1 ============ -->
+  <section id="t1">
+    <div class="panel">
+      <div class="toolbar">
+        <div class="tb-item">
+          <label for="modSel">业务模块</label>
+          <select id="modSel"></select>
+        </div>
+        <button class="act" id="btnGen">推导测试用例</button>
+        <button class="ghost" id="btnCsv" disabled>导出禅道 CSV</button>
+        <span class="spacer">模块与约束实时解析自 <code>sql/*.sql</code> 与 <code>web_app/app.py</code></span>
+      </div>
+      <div id="modInfo" class="mt"></div>
+      <p class="note mt" style="margin-bottom:0">推导规则：正常流 · 必填缺失（含接口必填参数） · 唯一冲突 ·
+        ENUM 非法值 · 数值下界 · 长度超限 · 外键悬空 · 业务规则（动作 / 存储过程）。</p>
+    </div>
+
+    <div class="panel mt">
+      <div class="stats" id="genStats"></div>
+      <div id="genOut"><p class="note">请选择业务模块后点击「推导测试用例」。</p></div>
+    </div>
+  </section>
+
+  <!-- ============ Tab 2 ============ -->
+  <section id="t2" class="hidden">
+    <div class="cols">
+      <div class="panel">
+        <h2>粘贴测试失败输出</h2>
+        <p class="note">支持 <code>unittest</code> 的 Traceback、MySQL 错误码与存储过程报错。</p>
+        <textarea id="logIn" placeholder="把被测出的失败日志粘到这里……"></textarea>
+        <div class="row mt">
+          <button class="act" id="btnDiag">智能归因</button>
+          <button class="ghost" id="btnMd" disabled>导出缺陷报告</button>
+        </div>
+        <div class="mt">
+          <label>没有日志？载入本仓库真实踩过的样例：</label>
+          <div class="row" id="sampleRow"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div id="diagOut"><p class="note">归因结果会显示：命中规则、严重级、所属异常层、根因、复现步骤、修复建议与回归守卫。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Tab 3 ============ -->
+  <section id="t3" class="hidden">
+    <div class="panel">
+      <h2>路由 × 用例 覆盖缺口</h2>
+      <p class="note">用「路径静态引用」近似判定某条路由是否被自动化用例触达；未覆盖项即下一批用例的编写清单。</p>
+      <div class="stats" id="covStats"></div>
+      <div class="row" style="margin-bottom:10px">
+        <button class="ghost" id="btnFilter">只看未覆盖</button>
+      </div>
+      <div class="tbl-wrap"><table id="covTbl">
+        <thead><tr><th>路由</th><th>方法</th><th>权限键</th><th>存储过程</th>
+          <th>用例引用</th><th>状态</th></tr></thead><tbody></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <div class="foot" id="foot"></div>
+</main>
+
+<script>
+const DATA = {"meta": {"project": "医院门诊管理系统（HIS）", "engine": "本地规则推理引擎（离线，零依赖）", "generated_at": "2026-10-15 20:16:24", "tables": 19, "columns": 185, "routes": 25, "modules": 14, "covered_routes": 24}, "modules": [{"code": "PAT", "name": "患者建档", "route": "/patients", "tables": ["patients"], "method": ["GET", "POST"], "perm": "patients", "procs": [], "actions": ["add", "delete", "update"], "flashes": ["患者档案创建成功。", "患者档案已删除。", "患者档案已更新。"], "form_fields": ["action", "address", "birth_date", "blood_type", "gender", "id_card", "medical_history", "patient_id", "patient_name", "patient_no", "phone"], "required_form_fields": ["birth_date", "blood_type", "gender", "id_card", "patient_id", "patient_name", "patient_no", "phone"], "successHint": "患者档案创建成功", "required": [{"table": "patients", "col": "patient_no", "label": "病历号"}, {"table": "patients", "col": "patient_name", "label": "姓名"}, {"table": "patients", "col": "gender", "label": "性别"}, {"table": "patients", "col": "id_card", "label": "身份证号"}, {"table": "patients", "col": "phone", "label": "联系电话"}], "unique": [{"table": "patients", "col": "patient_no", "label": "病历号", "hint": "病历号"}, {"table": "patients", "col": "id_card", "label": "身份证号", "hint": "身份证号"}, {"table": "patients", "col": "phone", "label": "联系电话", "hint": "手机号"}], "enums": [{"table": "patients", "col": "gender", "label": "性别", "values": ["男", "女"]}, {"table": "patients", "col": "blood_type", "label": "血型", "values": ["A", "B", "AB", "O", "未知"]}], "checks": [], "varchar": [{"table": "patients", "col": "patient_no", "label": "病历号", "length": 30}, {"table": "patients", "col": "patient_name", "label": "姓名", "length": 50}, {"table": "patients", "col": "id_card", "label": "身份证号", "length": 30}, {"table": "patients", "col": "phone", "label": "联系电话", "length": 20}, {"table": "patients", "col": "address", "label": "联系地址", "length": 200}, {"table": "patients", "col": "medical_history", "label": "既往病史", "length": 500}], "fks": [], "skipped": [], "app_required": ["birth_date", "blood_type", "patient_id"], "app_optional": []}, {"code": "REG", "name": "挂号 / 退号", "route": "/registrations", "tables": ["registrations", "doctor_schedules"], "method": ["GET", "POST"], "perm": "registrations", "procs": ["sp_cancel_registration", "sp_register"], "actions": ["cancel", "register"], "flashes": ["挂号成功，挂号费已收取。", "排班不存在，请刷新后重试。", "退号成功，号源已恢复，挂号费已退回。"], "form_fields": ["action", "patient_id", "pay_method", "reason", "reg_type", "registration_id", "schedule_id"], "required_form_fields": ["patient_id", "pay_method", "reg_type", "registration_id", "schedule_id"], "successHint": "挂号成功", "required": [{"table": "registrations", "col": "patient_id", "label": "患者编号"}], "unique": [], "enums": [{"table": "registrations", "col": "reg_type", "label": "号别", "values": ["普通号", "专家号"]}], "checks": [], "varchar": [], "fks": [{"table": "registrations", "col": "patient_id", "label": "患者编号", "ref": "patients.patient_id"}], "skipped": [{"table": "registrations", "col": "reg_no", "label": "挂号单号"}, {"table": "registrations", "col": "doctor_id", "label": "医生编号"}, {"table": "registrations", "col": "department_id", "label": "科室编号"}, {"table": "registrations", "col": "reg_date", "label": "挂号日期"}, {"table": "registrations", "col": "reg_fee", "label": "挂号费"}, {"table": "registrations", "col": "queue_no", "label": "排队号"}, {"table": "registrations", "col": "visit_status", "label": "就诊状态"}, {"table": "registrations", "col": "operator_id", "label": "挂号操作员"}, {"table": "doctor_schedules", "col": "doctor_id", "label": "医生编号"}, {"table": "doctor_schedules", "col": "work_date", "label": "出诊日期"}, {"table": "doctor_schedules", "col": "shift_type", "label": "班次"}, {"table": "doctor_schedules", "col": "clinic_room", "label": "诊室"}, {"table": "doctor_schedules", "col": "max_registrations", "label": "号源数"}, {"table": "doctor_schedules", "col": "registered_count", "label": "已挂号数"}, {"table": "doctor_schedules", "col": "schedule_status", "label": "排班状态"}, {"table": "doctor_schedules", "col": "doctor_id,work_date,shift_type", "label": "医生编号 + 出诊日期 + 班次"}], "app_required": ["pay_method", "reg_type", "registration_id", "schedule_id"], "app_optional": ["reason"]}, {"code": "SCH", "name": "医生排班维护", "route": "/schedules", "tables": ["doctor_schedules"], "method": ["GET", "POST"], "perm": "schedules", "procs": [], "actions": ["add", "delete", "status"], "flashes": ["只能操作自己的排班。", "当前角色仅可查看排班，不能进行操作。", "当前账号未关联医生档案，无法排班。", "排班创建成功。", "排班已删除。", "排班状态已更新。", "该医生 %s 已排「%s」，与本次「%s」时段冲突，", "该排班已被 %d 条挂号记录引用，不能删除；"], "form_fields": ["action", "clinic_room", "doctor_id", "max_registrations", "schedule_id", "schedule_status", "shift_type", "work_date"], "required_form_fields": ["doctor_id", "max_registrations", "schedule_id", "schedule_status", "shift_type", "work_date"], "successHint": "排班", "required": [{"table": "doctor_schedules", "col": "doctor_id", "label": "医生编号"}, {"table": "doctor_schedules", "col": "work_date", "label": "出诊日期"}, {"table": "doctor_schedules", "col": "shift_type", "label": "班次"}], "unique": [{"table": "doctor_schedules", "col": "doctor_id,work_date,shift_type", "label": "医生编号 + 出诊日期 + 班次", "hint": "该医生当天该班次的排班", "combo": true}], "enums": [{"table": "doctor_schedules", "col": "shift_type", "label": "班次", "values": ["上午", "下午", "全天"]}, {"table": "doctor_schedules", "col": "schedule_status", "label": "排班状态", "values": ["正常", "停诊"]}], "checks": [{"table": "doctor_schedules", "col": "max_registrations", "label": "号源数", "op": ">", "value": "0"}], "varchar": [{"table": "doctor_schedules", "col": "clinic_room", "label": "诊室", "length": 20}], "fks": [{"table": "doctor_schedules", "col": "doctor_id", "label": "医生编号", "ref": "doctors.doctor_id"}], "skipped": [{"table": "doctor_schedules", "col": "registered_count", "label": "已挂号数"}], "app_required": ["max_registrations", "schedule_id", "schedule_status"], "app_optional": []}, {"code": "RX", "name": "处方开具", "route": "/prescriptions", "tables": ["prescriptions", "prescription_items"], "method": ["GET", "POST"], "perm": "prescriptions", "procs": ["sp_issue_prescription"], "actions": ["issue", "start_visit", "void"], "flashes": ["只能操作自己名下的挂号记录。", "只能操作自己开具的处方。", "处方已作废。", "处方开具成功，状态为待收费。", "已开始接诊，患者状态更新为就诊中。", "当前账号未关联医生档案，无法开方。", "请至少添加一种药品。"], "form_fields": ["action", "doctor_id", "dosage[]", "medicine_id[]", "patient_id", "prescription_id", "quantity[]", "registration_id"], "required_form_fields": ["doctor_id", "patient_id", "prescription_id", "registration_id"], "successHint": "处方", "required": [{"table": "prescriptions", "col": "patient_id", "label": "患者编号"}, {"table": "prescriptions", "col": "doctor_id", "label": "开方医生"}, {"table": "prescription_items", "col": "prescription_id", "label": "处方编号"}], "unique": [], "enums": [], "checks": [], "varchar": [], "fks": [{"table": "prescriptions", "col": "patient_id", "label": "患者编号", "ref": "patients.patient_id"}, {"table": "prescriptions", "col": "doctor_id", "label": "开方医生", "ref": "doctors.doctor_id"}, {"table": "prescriptions", "col": "registration_id", "label": "关联挂号", "ref": "registrations.registration_id"}, {"table": "prescription_items", "col": "prescription_id", "label": "处方编号", "ref": "prescriptions.prescription_id"}], "skipped": [{"table": "prescriptions", "col": "prescription_no", "label": "处方号"}, {"table": "prescriptions", "col": "prescribe_date", "label": "开方日期"}, {"table": "prescriptions", "col": "total_amount", "label": "处方总金额"}, {"table": "prescriptions", "col": "prescription_status", "label": "处方状态"}, {"table": "prescription_items", "col": "medicine_id", "label": "药品编号"}, {"table": "prescription_items", "col": "medicine_name", "label": "药品名称（冗余快照）"}, {"table": "prescription_items", "col": "quantity", "label": "数量"}, {"table": "prescription_items", "col": "unit_price", "label": "单价"}, {"table": "prescription_items", "col": "dosage", "label": "用法用量"}], "app_required": ["registration_id"], "app_optional": ["dosage[]", "medicine_id[]", "quantity[]"]}, {"code": "PAY", "name": "收费 / 退费", "route": "/payments", "tables": ["payments"], "method": ["GET", "POST"], "perm": "payments", "procs": ["sp_charge", "sp_charge_lab_test", "sp_refund"], "actions": ["charge", "charge_lab", "refund"], "flashes": ["收费成功，药品库存已扣减。", "检验收费成功。", "退费成功，药品库存已恢复。"], "form_fields": ["action", "pay_method", "prescription_id", "reason", "test_id"], "required_form_fields": ["pay_method", "prescription_id", "test_id"], "successHint": "收费成功", "required": [], "unique": [], "enums": [{"table": "payments", "col": "pay_method", "label": "支付方式", "values": ["现金", "微信", "支付宝", "医保"]}], "checks": [], "varchar": [], "fks": [{"table": "payments", "col": "prescription_id", "label": "关联处方（药品费）", "ref": "prescriptions.prescription_id"}], "skipped": [{"table": "payments", "col": "payment_no", "label": "收费单号"}, {"table": "payments", "col": "patient_id", "label": "患者编号"}, {"table": "payments", "col": "registration_id", "label": "关联挂号（挂号费）"}, {"table": "payments", "col": "payment_type", "label": "收费类型"}, {"table": "payments", "col": "pay_amount", "label": "收费金额"}, {"table": "payments", "col": "pay_status", "label": "收费状态"}, {"table": "payments", "col": "operator_id", "label": "收费操作员"}, {"table": "payments", "col": "refund_operator_id", "label": "退费操作员"}, {"table": "payments", "col": "refund_reason", "label": "退费原因"}], "app_required": ["pay_method", "prescription_id", "test_id"], "app_optional": ["reason"]}, {"code": "PHA", "name": "药房发药", "route": "/pharmacy", "tables": ["prescriptions"], "method": ["GET", "POST"], "perm": "dispense", "procs": ["sp_dispense"], "actions": ["dispense"], "flashes": ["发药成功。"], "form_fields": ["action", "prescription_id"], "required_form_fields": ["prescription_id"], "successHint": "发药成功", "required": [], "unique": [], "enums": [], "checks": [], "varchar": [], "fks": [], "skipped": [{"table": "prescriptions", "col": "prescription_no", "label": "处方号"}, {"table": "prescriptions", "col": "patient_id", "label": "患者编号"}, {"table": "prescriptions", "col": "doctor_id", "label": "开方医生"}, {"table": "prescriptions", "col": "registration_id", "label": "关联挂号"}, {"table": "prescriptions", "col": "prescribe_date", "label": "开方日期"}, {"table": "prescriptions", "col": "total_amount", "label": "处方总金额"}, {"table": "prescriptions", "col": "prescription_status", "label": "处方状态"}], "app_required": ["prescription_id"], "app_optional": []}, {"code": "MED", "name": "药品目录维护", "route": "/medicines", "tables": ["medicines"], "method": ["GET", "POST"], "perm": "medicines", "procs": [], "actions": ["add", "update"], "flashes": ["药品信息已更新。", "药品新增成功。"], "form_fields": ["action", "manufacturer", "medicine_code", "medicine_id", "medicine_name", "medicine_type", "specification", "status", "stock_quantity", "unit", "unit_price"], "required_form_fields": ["medicine_code", "medicine_id", "medicine_name", "medicine_type", "status", "stock_quantity", "unit", "unit_price"], "successHint": "药品", "required": [{"table": "medicines", "col": "medicine_code", "label": "药品编码"}, {"table": "medicines", "col": "medicine_name", "label": "药品名称"}, {"table": "medicines", "col": "unit_price", "label": "单价"}], "unique": [{"table": "medicines", "col": "medicine_code", "label": "药品编码", "hint": "药品编码"}], "enums": [{"table": "medicines", "col": "medicine_type", "label": "药品类型", "values": ["西药", "中成药", "注射剂", "外用"]}, {"table": "medicines", "col": "status", "label": "药品状态", "values": ["启用", "停用"]}], "checks": [{"table": "medicines", "col": "unit_price", "label": "单价", "op": ">=", "value": "0"}, {"table": "medicines", "col": "stock_quantity", "label": "库存数量", "op": ">=", "value": "0"}], "varchar": [{"table": "medicines", "col": "medicine_code", "label": "药品编码", "length": 30}, {"table": "medicines", "col": "medicine_name", "label": "药品名称", "length": 100}, {"table": "medicines", "col": "specification", "label": "规格", "length": 100}, {"table": "medicines", "col": "unit", "label": "单位", "length": 20}, {"table": "medicines", "col": "manufacturer", "label": "生产厂家", "length": 100}], "fks": [], "skipped": [], "app_required": ["medicine_id", "medicine_type", "status", "stock_quantity", "unit"], "app_optional": []}, {"code": "USR", "name": "用户管理", "route": "/users", "tables": ["users", "doctors"], "method": ["GET", "POST"], "perm": "users", "procs": ["sp_add_doctor", "sp_add_user"], "actions": ["add_user", "delete_user", "reset_pwd", "toggle_status"], "flashes": ["不能删除当前登录账号。", "密码已重置。", "新账号注册成功。", "用户名与密码不能为空。", "角色不存在。", "账号已删除。", "账号状态已更新。"], "form_fields": ["action", "consultation_fee", "department_id", "gender", "max_daily_registrations", "new_password", "password", "phone", "role_id", "specialty", "title", "user_id", "user_name", "user_no", "username"], "required_form_fields": ["department_id", "gender", "new_password", "password", "role_id", "user_id", "user_name", "user_no", "username"], "successHint": "新账号注册成功", "required": [{"table": "users", "col": "user_no", "label": "工号"}, {"table": "users", "col": "user_name", "label": "姓名"}, {"table": "users", "col": "gender", "label": "性别"}, {"table": "users", "col": "role_id", "label": "角色编号"}, {"table": "users", "col": "username", "label": "登录名"}, {"table": "doctors", "col": "user_id", "label": "关联用户"}], "unique": [{"table": "users", "col": "user_no", "label": "工号", "hint": "工号"}, {"table": "users", "col": "phone", "label": "联系电话（自助终端等岗位可留空）", "hint": "手机号"}, {"table": "users", "col": "username", "label": "登录名", "hint": "登录名"}, {"table": "doctors", "col": "user_id", "label": "关联用户", "hint": "该账号（每个登录账号只能建一份医生档案）"}], "enums": [{"table": "users", "col": "gender", "label": "性别", "values": ["男", "女"]}], "checks": [{"table": "doctors", "col": "consultation_fee", "label": "挂号费", "op": ">=", "value": "0"}, {"table": "doctors", "col": "max_daily_registrations", "label": "每日限号", "op": ">", "value": "0"}], "varchar": [{"table": "users", "col": "user_no", "label": "工号", "length": 30}, {"table": "users", "col": "user_name", "label": "姓名", "length": 50}, {"table": "users", "col": "phone", "label": "联系电话（自助终端等岗位可留空）", "length": 20}, {"table": "users", "col": "username", "label": "登录名", "length": 50}, {"table": "doctors", "col": "title", "label": "职称", "length": 30}, {"table": "doctors", "col": "specialty", "label": "专业专长", "length": 100}], "fks": [{"table": "users", "col": "department_id", "label": "所属科室", "ref": "departments.department_id"}, {"table": "users", "col": "role_id", "label": "角色编号", "ref": "roles.role_id"}, {"table": "doctors", "col": "user_id", "label": "关联用户", "ref": "users.user_id"}], "skipped": [{"table": "users", "col": "password_hash", "label": "密码哈希（加盐，约103字符，预留至255）"}, {"table": "users", "col": "account_status", "label": "账号状态"}, {"table": "doctors", "col": "doctor_no", "label": "医生工号"}], "app_required": ["department_id", "new_password", "password"], "app_optional": []}, {"code": "DEPT", "name": "科室管理", "route": "/departments", "tables": ["departments"], "method": ["GET", "POST"], "perm": "departments", "procs": [], "actions": ["add", "delete", "edit"], "flashes": ["科室信息已更新。", "科室已删除。", "科室新增成功。", "科室编码与名称不能为空。"], "form_fields": ["action", "department_code", "department_id", "department_name", "description"], "required_form_fields": ["department_id"], "successHint": "科室", "required": [{"table": "departments", "col": "department_code", "label": "科室编码"}, {"table": "departments", "col": "department_name", "label": "科室名称"}], "unique": [{"table": "departments", "col": "department_code", "label": "科室编码", "hint": "科室编码"}, {"table": "departments", "col": "department_name", "label": "科室名称", "hint": "科室名称"}], "enums": [], "checks": [], "varchar": [{"table": "departments", "col": "department_code", "label": "科室编码", "length": 20}, {"table": "departments", "col": "department_name", "label": "科室名称", "length": 50}, {"table": "departments", "col": "description", "label": "科室说明", "length": 200}], "fks": [], "skipped": [], "app_required": ["department_id"], "app_optional": []}, {"code": "ANN", "name": "公告管理", "route": "/announcements", "tables": ["announcements"], "method": ["GET", "POST"], "perm": null, "procs": [], "actions": ["delete", "publish"], "flashes": ["仅管理员可发布或删除公告。", "公告发布成功。", "公告已删除。", "标题与内容不能为空。"], "form_fields": ["action", "announcement_id", "content", "title"], "required_form_fields": ["announcement_id"], "successHint": "公告", "required": [{"table": "announcements", "col": "title", "label": "公告标题"}, {"table": "announcements", "col": "content", "label": "公告内容"}], "unique": [], "enums": [], "checks": [], "varchar": [{"table": "announcements", "col": "title", "label": "公告标题", "length": 100}], "fks": [], "skipped": [{"table": "announcements", "col": "publisher_id", "label": "发布人（用户ID）"}], "app_required": ["announcement_id"], "app_optional": []}, {"code": "LAB", "name": "检验申请 / 结果录入", "route": "/lab_tests", "tables": ["lab_tests", "lab_test_results"], "method": ["GET", "POST"], "perm": "lab", "procs": ["sp_add_lab_test", "sp_cancel_lab_test"], "actions": ["add_test", "cancel_test"], "flashes": ["仅医生或管理员可以开具检验申请。", "关联的挂号记录不存在，检验申请未开具。", "只能为本次接诊医生名下的挂号开具检验申请。", "当前医生账号未指定科室，请先在「用户管理」里补全科室再开单。", "当前账号没有对应的医生档案，无法开具检验申请。", "所选患者与关联的挂号记录不是同一位患者，请重新选择。", "检验单已作废。", "检验申请开具成功，标本类型：%s，状态：待检验。"], "form_fields": ["action", "department_id", "doctor_id", "item_ids", "patient_id", "registration_id", "test_id"], "required_form_fields": ["department_id", "doctor_id", "patient_id", "registration_id", "test_id"], "successHint": "检验", "required": [{"table": "lab_tests", "col": "patient_id", "label": "患者"}, {"table": "lab_tests", "col": "doctor_id", "label": "开单医生（doctors.doctor_id）"}, {"table": "lab_tests", "col": "department_id", "label": "开单科室"}, {"table": "lab_test_results", "col": "test_id", "label": "检验单"}], "unique": [], "enums": [], "checks": [], "varchar": [], "fks": [{"table": "lab_tests", "col": "patient_id", "label": "患者", "ref": "patients.patient_id"}, {"table": "lab_tests", "col": "doctor_id", "label": "开单医生（doctors.doctor_id）", "ref": "doctors.doctor_id"}, {"table": "lab_tests", "col": "department_id", "label": "开单科室", "ref": "departments.department_id"}, {"table": "lab_tests", "col": "registration_id", "label": "关联挂号（可为空）", "ref": "registrations.registration_id"}, {"table": "lab_test_results", "col": "test_id", "label": "检验单", "ref": "lab_tests.test_id"}], "skipped": [{"table": "lab_tests", "col": "test_no", "label": "检验单号"}, {"table": "lab_tests", "col": "sample_type", "label": "标本类型：血液/尿液/粪便/其他"}, {"table": "lab_tests", "col": "test_status", "label": "待检验/检验中/已完成/已作废"}, {"table": "lab_test_results", "col": "item_id", "label": "检验项目"}, {"table": "lab_test_results", "col": "result_value", "label": "检验结果值（NULL 表示未出结果）"}, {"table": "lab_test_results", "col": "result_flag", "label": "正常/偏高/偏低/异常"}, {"table": "lab_test_results", "col": "result_note", "label": "备注"}, {"table": "lab_test_results", "col": "operator_id", "label": "录入人（users.user_id）"}], "app_required": ["registration_id"], "app_optional": ["item_ids"]}, {"code": "VIT", "name": "体征记录", "route": "/vitals", "tables": ["vital_signs"], "method": ["GET", "POST"], "perm": "vitals", "procs": ["sp_add_vital_sign"], "actions": ["add"], "flashes": ["体征记录已保存。", "关联的挂号记录不存在，体征未保存。", "所选患者与关联的挂号记录不是同一位患者，请重新选择。", "该挂号当前状态为「%s」，不能关联记录体征（已退号/已就诊的挂号不可再挂）。"], "form_fields": ["action", "note", "patient_id", "registration_id"], "required_form_fields": ["patient_id", "registration_id"], "successHint": "体征记录已保存", "required": [{"table": "vital_signs", "col": "patient_id", "label": "患者"}], "unique": [], "enums": [], "checks": [], "varchar": [{"table": "vital_signs", "col": "note", "label": "备注", "length": 200}], "fks": [{"table": "vital_signs", "col": "patient_id", "label": "患者", "ref": "patients.patient_id"}, {"table": "vital_signs", "col": "registration_id", "label": "关联挂号（可为空）", "ref": "registrations.registration_id"}], "skipped": [{"table": "vital_signs", "col": "operator_id", "label": "录入医生（users.user_id）"}], "app_required": ["registration_id"], "app_optional": []}, {"code": "MR", "name": "门诊病历", "route": "/medical_records", "tables": ["medical_records"], "method": ["GET", "POST"], "perm": "medical_records", "procs": ["sp_add_lab_test"], "actions": ["delete", "save"], "flashes": ["只能为自己接诊的患者书写病历。", "只能修改自己书写的病历。", "只能删除自己书写的病历。", "只能查看与编辑自己书写的病历。", "挂号记录不存在，无法书写病历。", "无法确定本次就诊的科室，检验申请未开具，请先补全科室。", "病历不存在或已被删除。", "病历已保存。"], "form_fields": ["action", "advice", "chief_complaint", "diagnosis", "item_ids", "past_history", "physical_exam", "present_illness", "record_id", "record_status", "registration_id"], "required_form_fields": ["record_id", "registration_id"], "successHint": "病历", "required": [{"table": "medical_records", "col": "registration_id", "label": "关联挂号记录（一次就诊一份病历）"}], "unique": [{"table": "medical_records", "col": "registration_id", "label": "关联挂号记录（一次就诊一份病历）", "hint": "关联挂号记录（一次就诊一份病历）"}], "enums": [{"table": "medical_records", "col": "record_status", "label": "病历状态", "values": ["草稿", "已归档"]}], "checks": [], "varchar": [{"table": "medical_records", "col": "chief_complaint", "label": "主诉", "length": 500}, {"table": "medical_records", "col": "diagnosis", "label": "诊断结果（主诊断）", "length": 500}], "fks": [{"table": "medical_records", "col": "registration_id", "label": "关联挂号记录（一次就诊一份病历）", "ref": "registrations.registration_id"}], "skipped": [{"table": "medical_records", "col": "record_no", "label": "病历号"}, {"table": "medical_records", "col": "patient_id", "label": "患者编号"}, {"table": "medical_records", "col": "doctor_id", "label": "接诊医生编号"}, {"table": "medical_records", "col": "department_id", "label": "就诊科室编号"}, {"table": "medical_records", "col": "visit_date", "label": "就诊日期"}, {"table": "medical_records", "col": "diagnosis_code", "label": "诊断编码（ICD-10 风格）"}], "app_required": ["record_id"], "app_optional": ["advice", "item_ids", "past_history", "physical_exam", "present_illness", "record_id"]}, {"code": "DIA", "name": "诊断维护", "route": "/diagnosis", "tables": ["patients"], "method": ["GET", "POST"], "perm": "diagnosis", "procs": [], "actions": ["save"], "flashes": ["诊断结果已保存。"], "form_fields": ["action", "diagnosis", "patient_id"], "required_form_fields": ["patient_id"], "successHint": "诊断结果已保存", "required": [], "unique": [], "enums": [], "checks": [], "varchar": [], "fks": [], "skipped": [{"table": "patients", "col": "patient_no", "label": "病历号"}, {"table": "patients", "col": "patient_name", "label": "姓名"}, {"table": "patients", "col": "gender", "label": "性别"}, {"table": "patients", "col": "id_card", "label": "身份证号"}, {"table": "patients", "col": "phone", "label": "联系电话"}, {"table": "patients", "col": "address", "label": "联系地址"}, {"table": "patients", "col": "blood_type", "label": "血型"}, {"table": "patients", "col": "medical_history", "label": "既往病史"}], "app_required": ["patient_id"], "app_optional": ["diagnosis"]}], "routes": [{"path": "/", "aliases": [], "methods": ["GET"], "endpoint": "index", "perm": null, "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": [], "test_files": [], "test_refs": 0}, {"path": "/healthz", "aliases": [], "methods": ["GET"], "endpoint": "healthz", "perm": null, "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": [], "test_files": ["test_auth_and_permissions.py"], "test_refs": 4}, {"path": "/login", "aliases": [], "methods": ["GET", "POST"], "endpoint": "login", "perm": null, "required_fields": [], "optional_fields": ["password", "username"], "procs": [], "actions": [], "flash": ["用户名或密码错误。", "账号已被锁定，无法登录。"], "test_files": ["test_auth_and_permissions.py", "test_contracts.py"], "test_refs": 6}, {"path": "/logout", "aliases": [], "methods": ["GET"], "endpoint": "logout", "perm": null, "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": ["已退出登录"], "test_files": ["test_auth_and_permissions.py"], "test_refs": 1}, {"path": "/dashboard", "aliases": [], "methods": ["GET"], "endpoint": "dashboard", "perm": null, "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": [], "test_files": ["test_auth_and_permissions.py"], "test_refs": 5}, {"path": "/patients", "aliases": [], "methods": ["GET", "POST"], "endpoint": "patients", "perm": "patients", "required_fields": ["birth_date", "blood_type", "gender", "id_card", "patient_id", "patient_name", "patient_no", "phone"], "optional_fields": ["action", "address", "medical_history"], "procs": [], "actions": ["add", "delete", "update"], "flash": ["患者档案创建成功。", "患者档案已删除。", "患者档案已更新。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py", "test_patients_and_registration.py"], "test_refs": 14}, {"path": "/registrations", "aliases": [], "methods": ["GET", "POST"], "endpoint": "registrations", "perm": "registrations", "required_fields": ["patient_id", "pay_method", "reg_type", "registration_id", "schedule_id"], "optional_fields": ["action", "reason"], "procs": ["sp_cancel_registration", "sp_register"], "actions": ["cancel", "register"], "flash": ["挂号成功，挂号费已收取。", "排班不存在，请刷新后重试。", "退号成功，号源已恢复，挂号费已退回。"], "test_files": ["test_auth_and_permissions.py", "test_patients_and_registration.py"], "test_refs": 6}, {"path": "/schedules", "aliases": [], "methods": ["GET", "POST"], "endpoint": "schedules", "perm": "schedules", "required_fields": ["doctor_id", "max_registrations", "schedule_id", "schedule_status", "shift_type", "work_date"], "optional_fields": ["action", "clinic_room"], "procs": [], "actions": ["add", "delete", "status"], "flash": ["只能操作自己的排班。", "当前角色仅可查看排班，不能进行操作。", "当前账号未关联医生档案，无法排班。", "排班创建成功。", "排班已删除。", "排班状态已更新。", "该医生 %s 已排「%s」，与本次「%s」时段冲突，", "该排班已被 %d 条挂号记录引用，不能删除；"], "test_files": ["test_auth_and_permissions.py", "test_patients_and_registration.py"], "test_refs": 9}, {"path": "/prescriptions", "aliases": [], "methods": ["GET", "POST"], "endpoint": "prescriptions", "perm": "prescriptions", "required_fields": ["doctor_id", "patient_id", "prescription_id", "registration_id"], "optional_fields": ["action", "dosage[]", "medicine_id[]", "quantity[]", "registration_id"], "procs": ["sp_issue_prescription"], "actions": ["issue", "start_visit", "void"], "flash": ["只能操作自己名下的挂号记录。", "只能操作自己开具的处方。", "处方已作废。", "处方开具成功，状态为待收费。", "已开始接诊，患者状态更新为就诊中。", "当前账号未关联医生档案，无法开方。", "请至少添加一种药品。"], "test_files": ["test_auth_and_permissions.py", "test_prescription_payment_pharmacy.py"], "test_refs": 7}, {"path": "/consultation", "aliases": ["/consultation/<int:registration_id>"], "methods": ["GET", "POST"], "endpoint": "consultation", "perm": "consultation", "required_fields": ["registration_id"], "optional_fields": ["action", "advice", "chief_complaint", "diagnosis", "dosage[]", "item_ids", "medicine_id[]", "past_history", "physical_exam", "present_illness", "quantity[]", "record_id", "record_status", "vital_note"], "procs": ["sp_add_lab_test", "sp_add_vital_sign", "sp_issue_prescription"], "actions": ["finish", "order_lab", "save_record", "save_vitals", "start"], "flash": ["体征已记录，将一并写入本次就诊记录。", "只能完成自己名下的挂号记录。", "只能接诊自己名下的挂号记录。", "只能操作自己名下的挂号记录。", "处方开具成功，状态为待收费。", "已完成就诊，患者状态更新为已就诊。", "已开具 %d 项检验申请，请提醒患者先到收费窗口缴费。", "已开始接诊，请先询问患者主观诉求并书写病历。"], "test_files": ["test_auth_and_permissions.py", "test_consultation_and_records.py", "test_contracts.py"], "test_refs": 16}, {"path": "/payments", "aliases": [], "methods": ["GET", "POST"], "endpoint": "payments", "perm": "payments", "required_fields": ["pay_method", "prescription_id", "test_id"], "optional_fields": ["action", "reason"], "procs": ["sp_charge", "sp_charge_lab_test", "sp_refund"], "actions": ["charge", "charge_lab", "refund"], "flash": ["收费成功，药品库存已扣减。", "检验收费成功。", "退费成功，药品库存已恢复。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py", "test_prescription_payment_pharmacy.py"], "test_refs": 10}, {"path": "/medicines", "aliases": [], "methods": ["GET", "POST"], "endpoint": "medicines", "perm": "medicines", "required_fields": ["medicine_code", "medicine_id", "medicine_name", "medicine_type", "status", "stock_quantity", "unit", "unit_price"], "optional_fields": ["action", "manufacturer", "specification"], "procs": [], "actions": ["add", "update"], "flash": ["药品信息已更新。", "药品新增成功。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 8}, {"path": "/reports", "aliases": [], "methods": ["GET"], "endpoint": "reports", "perm": "reports", "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": [], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 3}, {"path": "/codes", "aliases": [], "methods": ["GET"], "endpoint": "codes", "perm": "codes", "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": [], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 2}, {"path": "/export/<name>", "aliases": [], "methods": ["GET"], "endpoint": "export_csv", "perm": "export", "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": ["导出类型不存在。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 5}, {"path": "/vitals", "aliases": [], "methods": ["GET", "POST"], "endpoint": "vitals", "perm": "vitals", "required_fields": ["patient_id", "registration_id"], "optional_fields": ["action", "note", "registration_id"], "procs": ["sp_add_vital_sign"], "actions": ["add"], "flash": ["体征记录已保存。", "关联的挂号记录不存在，体征未保存。", "所选患者与关联的挂号记录不是同一位患者，请重新选择。", "该挂号当前状态为「%s」，不能关联记录体征（已退号/已就诊的挂号不可再挂）。"], "test_files": ["test_auth_and_permissions.py"], "test_refs": 1}, {"path": "/medical_records", "aliases": [], "methods": ["GET", "POST"], "endpoint": "medical_records", "perm": "medical_records", "required_fields": ["record_id", "registration_id"], "optional_fields": ["action", "advice", "chief_complaint", "diagnosis", "item_ids", "past_history", "physical_exam", "present_illness", "record_id", "record_status"], "procs": ["sp_add_lab_test"], "actions": ["delete", "save"], "flash": ["只能为自己接诊的患者书写病历。", "只能修改自己书写的病历。", "只能删除自己书写的病历。", "只能查看与编辑自己书写的病历。", "挂号记录不存在，无法书写病历。", "无法确定本次就诊的科室，检验申请未开具，请先补全科室。", "病历不存在或已被删除。", "病历已保存。"], "test_files": ["test_auth_and_permissions.py", "test_consultation_and_records.py", "test_contracts.py"], "test_refs": 11}, {"path": "/medical_records/<int:record_id>/print", "aliases": [], "methods": ["GET"], "endpoint": "medical_record_print", "perm": "medical_records", "required_fields": [], "optional_fields": [], "procs": [], "actions": [], "flash": ["只能查看自己书写的病历。", "病历不存在。"], "test_files": ["test_auth_and_permissions.py", "test_consultation_and_records.py", "test_contracts.py"], "test_refs": 11}, {"path": "/lab_tests", "aliases": [], "methods": ["GET", "POST"], "endpoint": "lab_tests", "perm": "lab", "required_fields": ["department_id", "doctor_id", "patient_id", "registration_id", "test_id"], "optional_fields": ["action", "item_ids", "registration_id"], "procs": ["sp_add_lab_test", "sp_cancel_lab_test"], "actions": ["add_test", "cancel_test"], "flash": ["仅医生或管理员可以开具检验申请。", "关联的挂号记录不存在，检验申请未开具。", "只能为本次接诊医生名下的挂号开具检验申请。", "当前医生账号未指定科室，请先在「用户管理」里补全科室再开单。", "当前账号没有对应的医生档案，无法开具检验申请。", "所选患者与关联的挂号记录不是同一位患者，请重新选择。", "检验单已作废。", "检验申请开具成功，标本类型：%s，状态：待检验。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 9}, {"path": "/lab_tests/<int:test_id>/results", "aliases": [], "methods": ["GET", "POST"], "endpoint": "lab_results", "perm": "lab", "required_fields": [], "optional_fields": ["action"], "procs": ["sp_record_lab_result"], "actions": ["record"], "flash": ["仅检验技师或管理员可以录入检验结果。", "检验单不存在。", "检验结果已保存，状态已自动流转。", "该检验单尚未收费，请先到收费窗口缴费后再录入结果。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 9}, {"path": "/diagnosis", "aliases": [], "methods": ["GET", "POST"], "endpoint": "diagnosis", "perm": "diagnosis", "required_fields": ["patient_id"], "optional_fields": ["action", "diagnosis"], "procs": [], "actions": ["save"], "flash": ["诊断结果已保存。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 6}, {"path": "/pharmacy", "aliases": [], "methods": ["GET", "POST"], "endpoint": "pharmacy", "perm": "dispense", "required_fields": ["prescription_id"], "optional_fields": ["action"], "procs": ["sp_dispense"], "actions": ["dispense"], "flash": ["发药成功。"], "test_files": ["test_auth_and_permissions.py", "test_prescription_payment_pharmacy.py"], "test_refs": 4}, {"path": "/users", "aliases": [], "methods": ["GET", "POST"], "endpoint": "users", "perm": "users", "required_fields": ["department_id", "gender", "new_password", "password", "role_id", "user_id", "user_name", "user_no", "username"], "optional_fields": ["action", "consultation_fee", "department_id", "max_daily_registrations", "phone", "specialty", "title"], "procs": ["sp_add_doctor", "sp_add_user"], "actions": ["add_user", "delete_user", "reset_pwd", "toggle_status"], "flash": ["不能删除当前登录账号。", "密码已重置。", "新账号注册成功。", "用户名与密码不能为空。", "角色不存在。", "账号已删除。", "账号状态已更新。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 15}, {"path": "/announcements", "aliases": [], "methods": ["GET", "POST"], "endpoint": "announcements", "perm": null, "required_fields": ["announcement_id"], "optional_fields": ["action", "content", "title"], "procs": [], "actions": ["delete", "publish"], "flash": ["仅管理员可发布或删除公告。", "公告发布成功。", "公告已删除。", "标题与内容不能为空。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 8}, {"path": "/departments", "aliases": [], "methods": ["GET", "POST"], "endpoint": "departments", "perm": "departments", "required_fields": ["department_id"], "optional_fields": ["action", "department_code", "department_name", "description"], "procs": [], "actions": ["add", "delete", "edit"], "flash": ["科室信息已更新。", "科室已删除。", "科室新增成功。", "科室编码与名称不能为空。"], "test_files": ["test_admin_and_lab.py", "test_auth_and_permissions.py"], "test_refs": 8}], "unique": {"username": "登录名", "user_no": "工号", "user_name": "姓名", "phone": "手机号", "role_code": "角色编码", "department_code": "科室编码", "department_name": "科室名称", "doctor_no": "医生工号", "patient_no": "病历号", "id_card": "身份证号", "medicine_code": "药品编码", "item_code": "检验项目编码", "reg_no": "挂号单号", "prescription_no": "处方号", "payment_no": "收费单号", "test_no": "检验单号", "uk_schedule_doctor_date": "该医生当天该班次的排班", "PRIMARY": "主键", "user_id": "该账号（每个登录账号只能建一份医生档案）", "uk_test_item": "该检验单的这个检验项目"}, "notnull": {"phone": "联系电话", "user_no": "工号", "user_name": "姓名", "username": "登录名", "password_hash": "密码", "gender": "性别", "role_id": "角色", "patient_name": "患者姓名", "patient_no": "病历号", "id_card": "身份证号", "doctor_no": "医生工号", "consultation_fee": "挂号费", "title": "职称", "medicine_code": "药品编码", "item_code": "检验项目编码", "reg_no": "挂号单号", "prescription_no": "处方号", "payment_no": "收费单号", "test_no": "检验单号"}, "rules": [{"id": "mysql-1062", "match": {"errno": "1062", "kw": ["Duplicate entry"]}, "title": "唯一约束冲突：写入的值已存在（MySQL 1062）", "severity": "高", "layer": "第 1 层 IntegrityError → handle_integrity_error", "cause": "唯一索引 / 主键上的值重复。若报的是业务单号（reg_no / prescription_no / payment_no / test_no），几乎可以断定是**单号生成器在同一时间粒度内产生了重复值**。", "repro": "同一秒内连续发起两次同类型业务（例：连点两次挂号、或脚本化批量验收）。", "fix": "检查 make_no() 的时间精度：秒级时间戳必然撞车，应提升到微秒并叠加进程内自增序号；同时确认该异常仍被第 1 层捕获（不能冒成 500）。", "guard": "BusinessNumberTests.test_make_no_unique_within_same_second（连续 500 次生成必须互不相同）"}, {"id": "mysql-1452", "match": {"errno": "1452", "kw": ["foreign key constraint fails"]}, "title": "外键约束失败：引用了不存在的父记录（MySQL 1452）", "severity": "高", "layer": "第 1 层 IntegrityError → handle_integrity_error", "cause": "写入的外键值在父表里不存在。**本仓库最典型的一类**是「把 doctors.doctor_id 当成 users.user_id 写进审计字段」——两者是不同序列，在种子数据里恰好错位，于是有的医生能成功、有的医生每次必失败。", "repro": "用 doctor_id 与 user_id 不一致的医生账号发起开方 / 挂号 / 体征录入。", "fix": "凡是「写审计人」的字段（operation_logs.user_id、vital_signs.operator_id、payments.operator_id、registrations.operator_id）都必须先换算成 users.user_id，例如 SELECT user_id INTO v_uid FROM doctors WHERE doctor_id = p_doctor_id。", "guard": "test_cannot_void_other_doctors_prescription"}, {"id": "mysql-1048", "match": {"errno": "1048", "kw": ["cannot be null"]}, "title": "NOT NULL 列被写入空值（MySQL 1048）", "severity": "中", "layer": "第 1 层 IntegrityError → handle_integrity_error", "cause": "表单里某个「看起来可以不填」的字段，在库里是 NOT NULL 且无默认值。", "repro": "提交时留空该字段（例：新增用户不填手机号，而 users.phone 仍是 NOT NULL）。", "fix": "二选一并保持一致：要么在库里放开为 NULL（迁移脚本），要么在应用层做必填校验；同时把该列登记进 _NOT_NULL_FIELD_HINTS，保证提示是中文列名而不是「完整性约束」。", "guard": "test_missing_required_field_is_handled 系列"}, {"id": "mysql-1451", "match": {"errno": "1451", "kw": ["Cannot delete or update a parent row"]}, "title": "删除被外键阻止：仍有子记录引用（MySQL 1451）", "severity": "中", "layer": "第 1 层 IntegrityError → handle_integrity_error", "cause": "被删对象仍被挂号 / 处方 / 收费 / 账号等子表引用。", "repro": "删除已有挂号的医生档案、已有关联账号的科室、已被业务引用的患者档案。", "fix": "保持提示可读（「该数据已被其它业务记录引用…」），不要吞掉异常；多表级联删除必须放在同一个事务里（execute_atomic），否则会留下半删脏数据。", "guard": "test_delete_patient_with_registration_blocked / test_delete_department_with_user_blocked"}, {"id": "mysql-1265", "match": {"errno": "1265", "kw": ["Data truncated", "Data truncated for column"]}, "title": "ENUM 非法取值（MySQL 1265 Data truncated）", "severity": "中", "layer": "第 2 层 mysql.connector.Error → handle_db_error", "cause": "提交的值不在 ENUM 允许集合内。注意它抛的是 DatabaseError，不是 IntegrityError，**只有第 2 层能接住**——放进第 1 层永远不生效。", "repro": "直接构造 POST 把 account_status 传成「停用」（库里是 ENUM('启用','锁定')）。", "fix": "确认校验落在 handle_db_error 分支，并给出「取值不在允许范围内」的可读提示。", "guard": "test_invalid_enum_value_is_handled"}, {"id": "mysql-1406", "match": {"errno": "1406", "kw": ["Data too long"]}, "title": "字段超长（MySQL 1406 Data too long）", "severity": "低", "layer": "第 2 层 mysql.connector.Error → handle_db_error", "cause": "输入长度超过列宽。同样是 DataError，不在 IntegrityError 分支。", "repro": "向 VARCHAR(n) 字段提交 n+1 个字符。", "fix": "在 handle_db_error 里给出「输入内容超出字段长度限制」；前端加 maxlength 只是体验优化，服务端兜底不能省。", "guard": "test_third_layer_coverage（要求写路由具备参数层兜底）"}, {"id": "mysql-1304", "match": {"errno": "1304", "kw": ["already exists"]}, "title": "对象已存在：重复执行建库脚本（MySQL 1304）", "severity": "低", "layer": "运维 / 脚本层", "cause": "重复执行了已经存在对象的 DDL。若出现在【增量脚本】里，通常是**语句切分方式不对**：按 $$ 之类的分隔符粗暴切分含 DELIMITER 的脚本，会切出错误片段。", "repro": "用 ad-hoc 脚本重灌 sql/04_procedures.sql（内含 DELIMITER $$ ... DELIMITER ;）。", "fix": "复用项目自带的 split_sql_statements()（真正的 DELIMITER 解析器），不要手写切分。特别注意：先执行的 DROP PROCEDURE 不会随失败回滚，会把对象删成不存在。", "guard": "—（脚本层，建议纳入部署前检查）"}, {"id": "py-none-subscript", "match": {"extype": "TypeError", "kw": ["'NoneType' object is not subscriptable"]}, "title": "断言前查库返回 None：写入并未真正可见（TypeError）", "severity": "高", "layer": "测试断言 / 事务可见性", "cause": "接口返回了成功提示，但随后查库取不到那条记录。两种常见根因：① 写入未提交（存储过程内缺少 COMMIT / 事务未闭合）；② 脚本版本回退——被后续脚本覆盖升级的存储过程被旧版本顶回去了。", "repro": "重灌 sql/04_procedures.sql 后跑挂号用例：flash 说「挂号成功」，但测试连接 SELECT 不到该 registrations 行。", "fix": "增量脚本必须按序号从小到大执行（sp_register 由 10 覆盖 04，sp_add_lab_test 由 09 覆盖 08）；同时确认存储过程内有 COMMIT。", "guard": "RegistrationTests（8 个用例）"}, {"id": "py-attribute-error", "match": {"extype": "AttributeError", "kw": ["has no attribute"]}, "title": "对象属性不存在（AttributeError）", "severity": "中", "layer": "应用代码", "cause": "拼写错误、字段改名后未同步，或对 None 取属性。", "repro": "按报错行定位即可。", "fix": "核对改名是否在两处（SQL 列名 / Python 取值）都同步。", "guard": "—"}, {"id": "py-key-error", "match": {"extype": "KeyError", "kw": ["KeyError"]}, "title": "必填参数缺失（KeyError）", "severity": "中", "layer": "第 3 层 KeyError/TypeError/ValueError → handle_param_error", "cause": "用 request.form[\"x\"] 直接下标取一个没提交的字段。", "repro": "构造 POST 时漏掉某个必填项。", "fix": "该异常应被第 3 层接住并回「必填参数不能为空」；若冒成 500，说明该路由缺少第三层兜底。", "guard": "test_third_layer_coverage"}, {"id": "assertion", "match": {"extype": "AssertionError", "kw": ["AssertionError"]}, "title": "断言失败（AssertionError）", "severity": "中", "layer": "测试断言", "cause": "期望值与实际值不一致。先判断是**产品缺陷**还是**用例本身写错了前提**，不要直接改断言把测试改绿。", "repro": "按 traceback 定位到具体断言与实参。", "fix": "优先断言业务结果（库里的状态、号源数、库存、金额），其次才断言提示文案——文案会随产品迭代变动。", "guard": "—"}], "samples": [{"name": "① 单号同秒撞唯一索引（MySQL 1062）", "expect": "mysql-1062", "output": "FAIL: test_queue_number_increases (tests.test_patients_and_registration.RegistrationTests)\n\n======================================================================\nFAIL: test_queue_number_increases (tests.test_patients_and_registration.RegistrationTests.test_queue_number_increases)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"tests/test_patients_and_registration.py\", line 189, in test_queue_number_increases\n    self.assertEqual(r1[\"queue_no\"], 1)\nAssertionError: None != 1\n\nstdout:\n  mysql.connector.errors.IntegrityError: 1062 (23000): Duplicate entry\n  'REG2026101519301200000001' for key 'registrations.reg_no'\n\nRan 8 tests in 9.1s\nFAILED (failures=1)\n"}, {"name": "② doctor_id 当 user_id 写审计日志（MySQL 1452）", "expect": "mysql-1452", "output": "ERROR: test_cannot_void_other_doctors_prescription\n (tests.test_prescription_payment_pharmacy.PrescriptionPaymentPharmacyTests)\n\n======================================================================\nERROR: test_cannot_void_other_doctors_prescription\n (tests.test_prescription_payment_pharmacy.PrescriptionPaymentPharmacyTests.test_cannot_void_other_doctors_prescription)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"tests/test_prescription_payment_pharmacy.py\", line 205, in test_cannot_void_other_doctors_prescription\n    self.assertIn(\"仅待收费\", self.flash_text(resp))\nAssertionError: '仅待收费' not found in '<!DOCTYPE html>...'\n\nstderr:\n  mysql.connector.errors.IntegrityError: 1452 (23000): Cannot add or update\n  a child row: a foreign key constraint fails\n  (`hospital_outpatient`.`operation_logs`,\n   CONSTRAINT `fk_logs_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`))\n\n  CALL sp_issue_prescription(...) -- 存储过程内 INSERT INTO operation_logs\n\nRan 16 tests in 21.4s\nFAILED (errors=1)\n"}, {"name": "③ 过程已存在 / 脚本切分错误（MySQL 1304）", "expect": "mysql-1304", "output": "Traceback (most recent call last):\n  File \"C:/tmp/apply_fix.py\", line 42, in <module>\n    cur.execute(stmt)\n  File \"mysql/connector/connection_cext.py\", line 630, in execute\nmysql.connector.errors.ProgrammingError: 1304 (42000): PROCEDURE sp_add_user already exists\n\nexecuted: DROP PROCEDURE IF EXISTS sp_issue_prescription;\n"}]};
+
+/* ============================ 公共 ============================ */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+
+document.querySelectorAll("nav.tabs button").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("nav.tabs button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    ["t1","t2","t3"].forEach(id => $("#"+id).classList.toggle("hidden", id !== b.dataset.tab));
+  };
+});
+
+/* 头部信息 */
+(function(){
+  const m = DATA.meta;
+  $("#hdMeta").innerHTML =
+    `<span>解析表 <b>${m.tables}</b> 张 / 字段 <b>${m.columns}</b> 个</span>` +
+    `<span>路由 <b>${m.routes}</b> 条</span>` +
+    `<span>业务模块 <b>${m.modules}</b> 个</span>` +
+    `<span>已被用例触达的路由 <b>${m.covered_routes}</b> / ${m.routes}</span>`;
+  $("#llmHint").innerHTML = `当前引擎：<b>${esc(m.engine)}</b>；` +
+    `推理接口已抽出（<code>ask()</code>），换用大模型时只需替换该函数，` +
+    `下方的推导规则、导出格式与页面结构都不用改。`;
+  $("#foot").textContent = `${m.project} · 演示台生成于 ${m.generated_at} · 离线运行`;
+})();
+
+/* ============================ Tab 1：用例生成 ============================ */
+const MSG = {
+  required: "必填参数不能为空，请检查后重试。",
+  unique: "已存在，请更换后重试。",
+  enum: "提交的取值不在该字段允许的范围内，请检查后重试。",
+  range: "输入数值超出允许范围，请检查后重试。",
+  length: "输入内容超出字段长度限制，请缩短后重试。",
+  fk: "关联的数据不存在或已被删除，请刷新页面后重试。"
+};
+
+const MODS = DATA.modules;
+const sel = $("#modSel");
+MODS.forEach((m, i) => {
+  const o = document.createElement("option");
+  o.value = i;
+  o.textContent = `${m.name}　（${m.route}）`;
+  sel.appendChild(o);
+});
+
+let CASES = [];
+let CURRENT = null;
+
+/* ---------------------------------------------------------------
+   引擎接口层（可插拔）
+   ---------------------------------------------------------------
+   gen() / diag() 是「怎么推」的知识，ask() 是「谁来推」的接口。
+   当前 ask() 直接调用本地规则引擎，全程离线、零依赖。
+   要换成真实大模型时，只需要把 ask() 改成异步请求（例如把任务类型
+   + 已解析的结构化事实 + 用户输入一起发给模型），然后让 btnGen /
+   btnDiag 走 async 分支即可 —— 下面的推导规则、导出格式、页面结构
+   一行都不用改。
+   --------------------------------------------------------------- */
+function ask(task, payload) {
+  switch (task) {
+    case "gen_cases":  return gen(payload.module);
+    case "diagnose":   return diag(payload.text);
+    default: throw new Error("未知任务：" + task);
+  }
+}
+
+function renderModInfo(m) {
+  const adopted = m.required.length + m.unique.length + m.enums.length +
+                  m.checks.length + m.varchar.length + m.fks.length;
+  const skipped = (m.skipped || []);
+  $("#modInfo").innerHTML = `
+    <div class="facts">
+      <span class="fact"><b>路由</b><code>${esc(m.route)}</code>
+        ${m.method.map(x=>`<span class="chip blue">${esc(x)}</span>`).join(" ")}</span>
+      <span class="fact"><b>权限键</b>${m.perm ? `<code>${esc(m.perm)}</code>` : "（仅需登录）"}</span>
+      <span class="fact"><b>涉及表</b>${m.tables.map(t=>`<code>${esc(t)}</code>`).join(" ")}</span>
+      <span class="fact"><b>存储过程</b>${m.procs.length ? m.procs.map(p=>`<code>${esc(p)}</code>`).join(" ") : "—"}</span>
+      <span class="fact"><b>表单字段</b>${m.form_fields.length} 个</span>
+      <span class="fact"><b>采纳约束</b>${adopted} 处
+        （必填 ${m.required.length} · 唯一 ${m.unique.length} · 枚举 ${m.enums.length} ·
+         下界 ${m.checks.length} · 定长 ${m.varchar.length} · 外键 ${m.fks.length}）</span>
+    </div>
+    ${skipped.length ? `<details class="mt">
+      <summary>另有 ${skipped.length} 处约束不面向表单，已自动跳过（点开看清单）</summary>
+      <p class="note">这些列由存储过程 / 服务端生成（如挂号单号、操作员、审计时间），
+        用户根本不会提交它们 —— 据此生成「不填 XX」的用例是假用例，因此引擎把它们排除在外。</p>
+      <div>${skipped.map(s=>`<span class="chip">${esc(s.table)}.${esc(s.col)}</span>`).join(" ")}</div>
+    </details>` : ""}`;
+}
+
+function pre(m) {
+  return `1. 已启动系统并初始化数据库\n2. 以有权访问「${m.name}」的账号登录（${m.perm ? "权限键 " + m.perm : "任意已登录账号"}）\n3. 打开 ${m.route}`;
+}
+
+function gen(m) {
+  const out = [];
+  let n = 0;
+  const push = (o) => { n++; out.push(Object.assign({
+    id: `TC-${m.code}-${String(n).padStart(3, "0")}`,
+    module: m.name, pre: pre(m), type: "功能测试", stage: "系统测试"
+  }, o)); };
+
+  // A 正常流
+  push({ pri:"P1", kw:"正常流",
+    title:`${m.name}：按合法数据提交，业务应处理成功`,
+    steps:`1. 打开 ${m.route}\n2. 各必填项填入合法值\n3. 提交`,
+    expect:`接口正常返回并给出成功提示（${m.successHint}…）；库中对应记录按预期新增 / 变更，状态与金额正确。` });
+
+  // B 必填校验（每个 NOT NULL 且无默认值的列）
+  m.required.slice(0, 12).forEach(c => push({ pri:"P2", kw:"必填校验",
+    title:`${m.name}：不填「${c.label}」提交，应给出可读提示`,
+    steps:`1. 打开 ${m.route}\n2. 其余字段正常填写，唯独「${c.label}」留空\n3. 提交`,
+    expect:`不冒 500；提示「${c.label}不能为空，请填写后重试。」（${MSG.required}）——由第 3 层参数异常兜底。` }));
+
+  // B2 接口契约上必填、但 schema 推不出来的字段（自增主键 / 服务端填充）
+  (m.app_required || []).forEach(f => push({ pri:"P2", kw:"必填校验",
+    title:`${m.name}：不传接口必填参数「${f}」，应被第 3 层参数异常兜住`,
+    steps:`1. 直接构造 POST 到 ${m.route}\n2. 不提交「${f}」（其余参数正常）\n3. 提交`,
+    expect:`应用侧用 request.form["${f}"] 直接下标取值 → 抛 KeyError；` +
+           `必须由第 3 层（KeyError/TypeError/ValueError → handle_param_error）兜成「必填参数不能为空」，` +
+           `不能冒成 500 页面。` }));
+
+  // C 唯一冲突
+  m.unique.forEach(c => push({ pri:"P1", kw:"唯一性",
+    title:`${m.name}：提交已存在的「${c.hint}」，应被唯一约束拦下`,
+    steps:`1. 先造一条使用「${c.hint}」= X 的记录\n2. 再提交一条使用相同「${c.hint}」的记录\n3. 提交`,
+    expect:`MySQL 1062 → 第 1 层 IntegrityError；提示「${c.hint}${MSG.unique}」，库里不产生第二条重复记录。` }));
+
+  // D ENUM 非法值
+  m.enums.forEach(c => push({ pri:"P2", kw:"取值校验",
+    title:`${m.name}：「${c.label}」传 ENUM 之外的取值，应被拦下`,
+    steps:`1. 直接构造 POST，把「${c.label}」传成不在 [${c.values.join(" / ")}] 内的值\n2. 提交`,
+    expect:`MySQL 1265 Data truncated → 第 2 层 mysql.connector.Error；提示「${MSG.enum}」。` +
+           `注意：该异常不是 IntegrityError，放在第 1 层永远不会生效。` }));
+
+  // E 数值下界
+  m.checks.forEach(c => push({ pri:"P2", kw:"边界值",
+    title:`${m.name}：「${c.label}」取下界之外的边界值（${c.op} ${c.value} 不成立）`,
+    steps:`1. 打开 ${m.route}\n2. 把「${c.label}」填成违反 ${c.op} ${c.value} 的值（如负数）\n3. 提交`,
+    expect:`CHECK 约束拒绝写入；提示「${MSG.range}」，不冒 500。` }));
+
+  // F 长度边界
+  m.varchar.slice(0, 10).forEach(c => push({ pri:"P3", kw:"长度边界",
+    title:`${m.name}：「${c.label}」提交超长内容（VARCHAR(${c.length}) + 1 字符）`,
+    steps:`1. 把「${c.label}」填入 ${c.length + 1} 个字符\n2. 提交`,
+    expect:`MySQL 1406 Data too long → 第 2 层；提示「${MSG.length}」。前端 maxlength 不能替代服务端兜底。` }));
+
+  // G 外键悬空
+  m.fks.forEach(c => push({ pri:"P2", kw:"外键完整性",
+    title:`${m.name}：「${c.label}」引用不存在的 ${c.ref}，应被拦下`,
+    steps:`1. 直接把「${c.label}」传成一个不存在的 id（如 999999999）\n2. 提交`,
+    expect:`MySQL 1452 → 第 1 层；提示「${MSG.fk}」。` +
+           `同类陷阱：把 doctors.doctor_id 当 users.user_id 写入审计字段，会导致部分账号每次操作必失败。` }));
+
+  // H 业务规则（由路由 action 与存储过程推导，schema 约束推不出来的那部分）
+  const acts = (m.actions || []).filter(a => a !== "add" && a !== "add_test");
+  acts.forEach(a => push({ pri:"P2", kw:"业务规则",
+    title:`${m.name}：前置状态不满足时执行「${a}」，应被拒绝并整体回滚`,
+    steps:`1. 先造一条不满足「${a}」前置条件的记录（状态不对 / 已被其它单据引用）\n2. 触发「${a}」`,
+    expect:`存储过程内 SIGNAL 抛出业务错误 → 第 2 层兜底成可读提示；` +
+           `事务整体回滚，不允许出现「改了一半」的脏数据。` }));
+
+  m.procs.forEach(p => push({ pri:"P1", kw:"业务规则",
+    title:`${m.name}：${p} 的前置条件与幂等性`,
+    steps:`1. 准备满足前置条件的单据\n2. 调用 ${p}\n3. 对同一单据重复调用一次`,
+    expect:`首次成功；重复调用给出业务提示而不是重复写库/重复扣减。` +
+           `过程内应使用显式事务与 EXIT HANDLER，异常时 ROLLBACK 并 RESIGNAL。` }));
+
+  return out;
+}
+
+function renderCases(list) {
+  const groups = {};
+  list.forEach(c => (groups[c.kw] = groups[c.kw] || []).push(c));
+  const order = ["正常流","必填校验","唯一性","取值校验","边界值","长度边界","外键完整性","业务规则"];
+  const rows = [];
+  order.filter(k => groups[k]).forEach(k => {
+    rows.push(`<tr><td colspan="4" style="background:#f4f4f5;font-weight:800;color:#18181b">
+      ${esc(k)}（${groups[k].length} 条）</td></tr>`);
+    groups[k].forEach(c => {
+      rows.push(`<tr>
+        <td class="mono" style="white-space:nowrap">${esc(c.id)}<div class="mt"><span class="chip ${c.pri.toLowerCase()}">${esc(c.pri)}</span></div></td>
+        <td style="min-width:260px"><b>${esc(c.title)}</b></td>
+        <td style="white-space:pre-wrap;color:#52525b;min-width:240px">${esc(c.steps)}</td>
+        <td style="white-space:pre-wrap;min-width:340px">${esc(c.expect)}</td>
+      </tr>`);
+    });
+  });
+  $("#genOut").innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr><th>用例编号 / 优先级</th><th>用例标题</th><th>测试步骤</th><th>预期结果</th></tr></thead>
+    <tbody>${rows.join("")}</tbody></table></div>`;
+
+  const byP = {P1:0,P2:0,P3:0};
+  list.forEach(c => byP[c.pri]++);
+  const uniq = DATA.modules.find(x => x.code === CURRENT.code).unique.length;
+  $("#genStats").innerHTML = `
+    <div class="stat"><div class="k">推导用例总数</div><div class="v">${list.length}</div></div>
+    <div class="stat"><div class="k">P1 / P2 / P3</div><div class="v">${byP.P1} / ${byP.P2} / ${byP.P3}</div></div>
+    <div class="stat"><div class="k">覆盖约束类型</div><div class="v">${new Set(list.map(c=>c.kw)).size} 类</div></div>
+    <div class="stat"><div class="k">来自真实 schema</div><div class="v">${uniq}<span style="font-size:.7rem;color:#71717a"> 处唯一键</span></div></div>`;
+}
+
+$("#btnGen").onclick = () => {
+  CURRENT = MODS[+sel.value];
+  renderModInfo(CURRENT);
+  CASES = ask("gen_cases", {module: CURRENT});
+  renderCases(CASES);
+  $("#btnCsv").disabled = false;
+};
+sel.onchange = () => { renderModInfo(MODS[+sel.value]); };
+
+// 打开即推导一次，避免首屏留白（也方便直接截图入报告）
+$("#btnGen").click();
+
+/* 导出禅道格式 CSV（字段与 gen_testcases.py 对齐） */
+function csvCell(v) { return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; }
+function download(name, text, mime) {
+  const blob = new Blob(["\ufeff" + text], {type: mime || "text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+$("#btnCsv").onclick = () => {
+  if (!CASES.length) return;
+  const head = ["用例编号","所属模块","用例标题","前置条件","测试步骤","预期结果",
+                "优先级","用例类型","适用阶段","关键词"];
+  const lines = [head.map(csvCell).join(",")];
+  CASES.forEach(c => lines.push([c.id,c.module,c.title,c.pre,c.steps,c.expect,
+                                 c.pri,c.type,c.stage,c.kw].map(csvCell).join(",")));
+  download(`AI推导测试用例_${CURRENT.code}.csv`, lines.join("\r\n"));
+};
+
+sel.selectedIndex = 0;
+
+/* ============================ Tab 2：失败智能归因 ============================ */
+const RULES = DATA.rules;
+const SAMPLES = DATA.samples;
+const srow = $("#sampleRow");
+SAMPLES.forEach((s, i) => {
+  const b = document.createElement("button");
+  b.className = "ghost";
+  b.textContent = s.name;
+  b.onclick = () => { $("#logIn").value = s.output; $("#btnDiag").click(); };
+  srow.appendChild(b);
+});
+
+function diag(text) {
+  const hits = [];
+  RULES.forEach(r => {
+    let score = 0, why = [];
+    const m = r.match || {};
+    if (m.errno && text.includes(m.errno)) { score += 3; why.push("错误码 " + m.errno); }
+    if (m.extype && text.includes(m.extype)) { score += 2; why.push("异常类型 " + m.extype); }
+    (m.kw || []).forEach(k => { if (text.includes(k)) { score += 2; why.push("关键字 " + k); } });
+    if (score > 0) hits.push({rule: r, score, why});
+  });
+  hits.sort((a,b) => b.score - a.score);
+  if (!hits.length) return null;
+  return {best: hits[0], others: hits.slice(1, 4)};
+}
+
+function renderDiag(res, text) {
+  if (!res) {
+    $("#diagOut").innerHTML = `<p class="note">没有匹配到已知规则。可补充日志中的错误码
+      （1062 / 1452 / 1048 / 1451 / 1265 / 1406 / 1304）或异常类型后重试。</p>`;
+    return;
+  }
+  const r = res.best.rule;
+  const conf = res.best.score >= 5 ? "高" : res.best.score >= 3 ? "中" : "低";
+  $("#diagOut").innerHTML = `
+    <div class="card hit">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <h2 style="margin:0">${esc(r.title)}</h2>
+        <span class="chip ${conf === "高" ? "p1" : conf === "中" ? "p2" : "p3"}">置信度 ${conf}</span>
+      </div>
+      <div class="kv mt">
+        <div class="k">规则编号</div><div><code>${esc(r.id)}</code></div>
+        <div class="k">严重级</div><div><b>${esc(r.severity)}</b></div>
+        <div class="k">所属层</div><div>${esc(r.layer)}</div>
+        <div class="k">命中依据</div><div>${res.best.why.map(w=>`<span class="chip blue">${esc(w)}</span>`).join(" ")}</div>
+      </div>
+      <h3>根因分析</h3><p>${esc(r.cause)}</p>
+      <h3>复现步骤</h3><ol><li>${esc(r.repro).replace(/\n/g,"</li><li>")}</li></ol>
+      <h3>修复建议</h3><p>${esc(r.fix)}</p>
+      <h3>回归守卫（已固化的用例）</h3><p><code>${esc(r.guard)}</code></p>
+    </div>
+    ${res.others.length ? `<h3>其他可能相关的规则</h3><div class="row">${
+      res.others.map(o => `<span class="chip">${esc(o.rule.title)}（命中 ${o.score}）</span>`).join("")
+    }</div>` : ""}`;
+}
+
+$("#btnDiag").onclick = () => {
+  const t = $("#logIn").value;
+  if (!t.trim()) { $("#diagOut").innerHTML = `<p class="note">请先粘贴失败日志，或点上面的样例按钮。</p>`; return; }
+  const res = ask("diagnose", {text: t});
+  renderDiag(res, t);
+  $("#btnMd").disabled = !res;
+  window.__lastDiag = res ? {res, text: t} : null;
+};
+
+$("#btnMd").onclick = () => {
+  const st = window.__lastDiag;
+  if (!st) return;
+  const r = st.res.best.rule;
+  const md = [
+    `# 缺陷报告 · ${r.title}`, "",
+    `- **规则编号**：${r.id}`,
+    `- **严重级**：${r.severity}`,
+    `- **所属异常层**：${r.layer}`,
+    `- **命中依据**：${st.res.best.why.join("；")}`,
+    `- **生成时间**：${DATA.meta.generated_at}`, "",
+    "## 一、根因分析", "", r.cause, "",
+    "## 二、复现步骤", "", r.repro, "",
+    "## 三、修复建议", "", r.fix, "",
+    "## 四、回归守卫", "", `已固化用例：\`${r.guard}\``, "",
+    "## 五、原始失败日志（节选）", "", "```", st.text.trim().slice(0, 2000), "```", ""
+  ].join("\n");
+  download("缺陷报告.md", md, "text/markdown;charset=utf-8");
+};
+
+/* ============================ Tab 3：覆盖缺口 ============================ */
+const ROUTES = DATA.routes.slice().sort((a,b) => a.test_refs - b.test_refs || a.path.localeCompare(b.path));
+let onlyGap = false;
+
+function renderCov() {
+  const list = onlyGap ? ROUTES.filter(r => r.test_refs === 0) : ROUTES;
+  const tb = $("#covTbl tbody");
+  tb.innerHTML = list.map(r => `<tr>
+    <td><code>${esc(r.path)}</code><div style="color:#71717a;font-size:.74rem">${esc(r.endpoint)}()</div></td>
+    <td>${r.methods.map(x=>`<span class="chip blue">${esc(x)}</span>`).join(" ")}</td>
+    <td>${r.perm ? `<code>${esc(r.perm)}</code>` : "—"}</td>
+    <td class="mono" style="color:#52525b">${r.procs.length ? r.procs.map(esc).join("<br>") : "—"}</td>
+    <td>${r.test_refs ? `<b>${r.test_refs}</b>` : "0"}</td>
+    <td>${r.test_refs ? `<span class="chip ok">已覆盖</span>` : `<span class="chip no">未覆盖</span>`}</td>
+  </tr>`).join("");
+
+  const total = ROUTES.length, cov = ROUTES.filter(r => r.test_refs > 0).length;
+  const pct = Math.round(cov / total * 100);
+  $("#covStats").innerHTML = `
+    <div class="stat"><div class="k">路由总数</div><div class="v">${total}</div></div>
+    <div class="stat"><div class="k">被用例触达</div><div class="v">${cov}</div></div>
+    <div class="stat"><div class="k">缺口</div><div class="v" style="color:#991b1b">${total - cov}</div></div>
+    <div class="stat"><div class="k">路由触达率</div><div class="v">${pct}%<div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
+}
+$("#btnFilter").onclick = (e) => {
+  onlyGap = !onlyGap;
+  e.target.textContent = onlyGap ? "显示全部路由" : "只看未覆盖";
+  renderCov();
+};
+renderCov();
+</script>
+</body>
+</html>

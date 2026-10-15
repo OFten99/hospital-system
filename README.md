@@ -52,6 +52,9 @@ run_web.bat   # 或 cd web_app && python app.py
 
 # 4. 跑一遍自动化测试（可选，172 个用例）
 run_tests.bat   # 或 python -m unittest discover -s tests -v
+
+# 5. 打开「AI + 测试」演示台（可选，双击即可，无需数据库）
+#    ai_test_demo/index.html
 ```
 
 ## 部署到公网（免费）
@@ -97,6 +100,11 @@ git add . && git commit -m "更新" && git push
 │   ├── test_prescription_payment_pharmacy.py  # 开方 / 收费 / 退费 / 发药
 │   ├── test_admin_and_lab.py     #   字典维护 / 检验科流程 / 诊断 / 报表导出
 │   └── README.md                 #   测试说明与接口契约清单
+├── ai_test_demo/                 # 「AI + 测试」演示台（自包含单页，双击 index.html 即用）
+│   ├── index.html                #   交付物：内联数据，离线运行、零依赖
+│   ├── build_demo.py             #   构建脚本：解析仓库的 sql/ 与 app.py → 生成 index.html
+│   ├── console_template.html     #   页面模板（含全部推导与归因规则）
+│   └── README.md                 #   演示台说明：推导规则、引擎接口、已知边界
 ├── cloud-functions/              # EdgeOne Makers 云函数目录（由 build_edgeone.py 自动生成，勿手改）
 ├── docs/
 │   ├── 部署到公网_EdgeOne.md              # 免费部署到公网的完整步骤
@@ -139,6 +147,7 @@ git add . && git commit -m "更新" && git push
 | 页面模板 | 22 |
 | 黑盒测试用例 | 50 |
 | 自动化测试用例 | 172（`tests/`，标准库 `unittest`，无需 pytest） |
+| AI 演示台可推导用例 | 183（`ai_test_demo/`，解析 19 表 / 185 字段 / 25 路由自动生成） |
 | `web_app/app.py` | 约 3100 行 |
 | `web_app/db.py` | 340 行（连接池 + 查询封装 + 事务化写入 + OUT 参数调用） |
 
@@ -169,6 +178,33 @@ python -m unittest discover -s tests -v   # 或双击 run_tests.bat
 > 例如：`make_no()` 早期用秒级时间戳，同一秒连续两次挂号会撞 `reg_no` 唯一索引；
 > `sp_issue_prescription` 曾把 `doctors.doctor_id` 当成 `users.user_id` 写审计日志，
 > 导致部分医生**每次开方都因外键 1452 回滚失败**。两处均已修复并加了回归守卫。
+
+## AI + 测试演示台
+
+[`ai_test_demo/index.html`](ai_test_demo/index.html) 是一个**自包含的单页演示台**，
+演示 AI 辅助测试在本项目里能落成什么样。**双击即开，不需要服务器、网络或任何依赖。**
+
+它不写死示例，而是**解析本仓库自己的 `sql/*.sql` 与 `web_app/app.py`**，
+把表约束、路由表单、存储过程、异常分层读进来，再据此推理：
+
+- **① 智能用例生成** — 从「表约束 ∩ 表单真正能提交的字段」推出用例，按
+  正常流 / 必填 / 唯一 / ENUM / 边界 / 长度 / 外键 / 业务规则分组，可导出**禅道格式 CSV**。
+  14 个模块合计可推导 **183 条**（如患者建档 22 条）。
+- **② 失败智能归因** — 粘贴 Traceback 或 MySQL 错误码，给出命中规则、严重级、
+  **所属异常层**、根因、复现步骤、修复建议与**指回 `tests/` 的回归守卫**，可导出缺陷报告。
+  内置 11 条规则，其中 1406/1265 **只能由第 2 层兜底**（它们不是 `IntegrityError`）这一条，
+  正是本项目真实踩过的坑。
+- **③ 覆盖缺口分析** — 扫 `tests/*.py` 对每条路由的引用，25 条路由已触达 24 条，
+  缺口 1 条（`/` 首页），即下一批用例的编写清单。
+
+关键设计是**不让「AI」编造**：只对同时「带可测约束」且「出现在该路由表单里」的列生成用例，
+业务单号 / 操作员 / 审计时间这类由存储过程生成的列会被主动列进「已自动跳过」清单，
+而不是硬编一条假用例。推导规则固化在代码里，因此结论**可复核、可复现**。
+
+> 演示台当前运行在本地规则推理引擎上（离线、零依赖）；引擎接口已抽成 `ask()`，
+> 换真实大模型时只需替换该函数，推导规则与导出格式都不用改。
+>
+> 完整说明见 **[`ai_test_demo/README.md`](ai_test_demo/README.md)**。
 
 ## 数据库设计要点
 

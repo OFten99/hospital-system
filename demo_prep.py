@@ -254,7 +254,7 @@ def main():
     print("\n" + LINE)
     print("  好，可以开演了。下一步：")
     print("    1) 双击 run_web.bat        → 浏览器开 http://127.0.0.1:5000")
-    print("    2) 双击 run_tests.bat      → 现场跑 172 条自动化测试")
+    print("    2) 双击 run_tests.bat      → 现场跑 183 条自动化测试")
     print("    3) 双击 ai_test_demo/index.html → 打开「AI + 测试」演示台")
     print(LINE)
 

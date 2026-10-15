@@ -46,11 +46,11 @@ python init_database.py
 
 ---
 
-## 二、文件一览（共 183 个用例）
+## 二、文件一览（共 172 个用例）
 
 | 文件 | 用例数 | 覆盖内容 |
 | --- | ---: | --- |
-| `test_contracts.py` | 49 | **离线静态契约**：路由/模板清单、三层异常分层、Jinja `.items` 陷阱、密码哈希、结果标志自动判定、单号唯一性、已下线功能守卫、**演示模式的开关与访问边界** |
+| `test_contracts.py` | 38 | **离线静态契约**：路由/模板清单、三层异常分层、Jinja `.items` 陷阱、密码哈希、结果标志自动判定、单号唯一性、已下线功能守卫 |
 | `test_admin_and_lab.py` | 56 | 科室 / 用户 / 公告 / 药品字典维护，**检验科全流程**（开单→收费→录结果→作废），诊断维护，报表与 CSV 导出 |
 | `test_patients_and_registration.py` | 23 | 患者建档（唯一性、外键保护、检索）、挂号/退号/号源、排班冲突与停诊 |
 | `test_consultation_and_records.py` | 23 | 医生接诊工作台（开始/完成接诊）、门诊病历保存与打印、检验开单关联挂号、体征内联录入 |
@@ -76,15 +76,6 @@ python init_database.py
 | 模板文件数 | 22 | 且每个 `render_template("x.html")` 都必须真实存在 |
 | 有数据库异常兜底（第 1+2 层）的写路由 | 16 / 16 | |
 | 有第三层参数异常兜底（`KeyError/TypeError/ValueError`）的写路由 | 15 | 唯一例外是 `lab_results` |
-| 演示模式路由 / 模板 | 4 / 1 | `/demo*` 与 `demo.html`（`HIS_DEMO_MODE=1` 时启用），**不计入**上面的业务口径 |
-| 演示主线步骤数 | 12 | `demo_mode.STEPS`：key 唯一，首尾固定为 `patient` / `dispense` |
-
-> **演示模式为什么不计入业务口径**：`/demo*` 是答辩辅助功能（免密切换角色 + 一键跑完主线），
-> 不属于系统对外承诺的业务规模，因此 `test_decorator_count` / `test_runtime_rule_and_endpoint_counts` /
-> `test_template_count` / `_post_blocks()` 都会先把它们排除掉，「25 条业务路由 / 22 个页面」
-> 的口径保持不变。演示相关路由改由 `DemoModeContractTests`（11 条）单独守住，
-> 重点断言**默认关闭**、**默认只允许本机**、未开启时 `/demo` 退登录页且 `/demo/step` 返回 403，
-> 以及「演示必须复用 app 里的 `make_no` / `auto_flag` / `derive_sample_type`」这条一致性约束。
 
 关于 `lab_results`：它全程用 `request.form.get()` 取值，从不直接下标访问表单，
 因此不会抛 `KeyError`；`TESTING=True` 下若真出现参数异常会直接冒成 500，

@@ -21,20 +21,11 @@ from urllib.parse import quote
 
 import mysql.connector
 import mysql.connector.errors
-from flask import (Flask, Response, flash, jsonify, redirect, render_template,
-                   request, session, url_for)
+from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import (call_proc, call_proc_scalar, close_request_connections, execute,
                 execute_atomic, fetch_all, fetch_one, get_connection)
-
-# 演示模式（免密切换角色 + 一键走完一条就诊闭环）。
-# 面向课程设计答辩/验收：由环境变量 HIS_DEMO_MODE=1 开启，且默认只允许本机访问。
-# 云端打包若不含该模块，这里置 None，主流程不受影响。
-try:
-    import demo_mode
-except Exception:  # pragma: no cover - 缺该模块时演示能力自动降级为不可用
-    demo_mode = None
 
 
 # 模板与静态资源目录按「本文件所在目录」定位，
@@ -318,18 +309,10 @@ def permission_required(menu_key):
 
 @app.context_processor
 def inject_common_data():
-    # 演示模式开关每页都要知道：开了就在页面顶部挂一条「演示」快捷条，
-    # 没开则完全不出现，不影响正常使用。
-    try:
-        demo_ok = bool(demo_mode and demo_mode.demo_active(request.remote_addr))
-    except Exception:
-        demo_ok = False
     return {
         "current_user": current_user(),
         "role_allowed": role_allowed,
         "now": datetime.now(),
-        "demo_available": demo_ok,
-        "demo_accounts": demo_mode.DEMO_ACCOUNTS if demo_ok else [],
     }
 
 
@@ -505,22 +488,6 @@ def handle_param_error(error, default_message="提交参数格式错误，请检
     if isinstance(error, TypeError):
         return "必填参数不能为空：某个必填项没有填，请检查后重试。"
     return default_message
-
-
-def describe_db_error(error):
-    """把任意异常翻译成给使用者看的中文提示。
-
-    演示模式复用这里的三层异常处理：存储过程抛出的业务错误（SIGNAL，错误码
-    1644）、唯一键/外键冲突、以及参数缺失，都能得到与页面完全一致的中文提示，
-    而不是把一段原始 SQL 异常栈丢到演示控制台上。
-    """
-    if isinstance(error, mysql.connector.errors.IntegrityError):
-        return handle_integrity_error(error)
-    if isinstance(error, mysql.connector.Error):
-        return handle_db_error(error)
-    if isinstance(error, (KeyError, TypeError, ValueError)):
-        return handle_param_error(error)
-    return str(error)
 
 
 
@@ -3110,114 +3077,6 @@ def departments():
         """
     )
     return render_template("departments.html", rows=rows)
-
-
-# ============================================================
-# 演示模式（仅用于课程设计答辩 / 验收）
-#
-#   GET  /demo                  演示控制台（角色一键切换 + 主线 12 步）
-#   GET  /demo/switch/<用户名>   免密切换角色后跳转
-#   POST /demo/step             执行一步主线，返回 JSON 供控制台串起来跑
-#   POST /demo/reset            清空本轮演示状态
-#
-# 安全边界：必须**同时**满足「HIS_DEMO_MODE=1」与「请求来自本机」才生效。
-# 免密登录等于绕过认证，绝不能在公网环境打开。
-# ============================================================
-
-_DEMO_HELPERS = {
-    # 注入 app 内的既有实现，保证「演示模式」与「手工点页面」走的是
-    # 完全同一套逻辑（同一个单号生成器、同一套检验标志判定），不会出现行为分叉。
-    "make_no": make_no,
-    "derive_sample_type": derive_sample_type,
-    "auto_flag": auto_flag,
-    "describe_error": describe_db_error,
-}
-
-
-def _demo_ready():
-    """演示能力是否可用；不可用时返回一句可读原因。"""
-    if demo_mode is None:
-        return False, "演示模块不可用（web_app/demo_mode.py 缺失）。"
-    if not demo_mode.demo_enabled():
-        return False, "演示模式未开启：启动前设置环境变量 HIS_DEMO_MODE=1（run_web.bat 已内置）。"
-    if not demo_mode.remote_allowed(request.remote_addr):
-        return False, "演示模式默认只允许本机访问。确需远程演示请设置 HIS_DEMO_ALLOW_REMOTE=1。"
-    return True, ""
-
-
-@app.route("/demo")
-def demo_console():
-    ready, message = _demo_ready()
-    if not ready:
-        flash(message, "error")
-        return redirect(url_for("login"))
-    return render_template(
-        "demo.html",
-        steps=demo_mode.STEPS,
-        accounts=demo_mode.DEMO_ACCOUNTS,
-        demo_password=demo_mode.DEMO_PASSWORD,
-        state=demo_mode.load_state(),
-        overview=demo_mode.overview(),
-    )
-
-
-@app.route("/demo/switch/<username>")
-def demo_switch(username):
-    """免密切换角色（效果等同于用该账号正常登录一次）。"""
-    ready, message = _demo_ready()
-    if not ready:
-        flash(message, "error")
-        return redirect(url_for("login"))
-
-    user = fetch_one(
-        """
-        SELECT u.user_id, u.user_name, u.username, u.account_status,
-               r.role_code, r.role_name, d.department_name
-        FROM users u
-        JOIN roles r ON u.role_id = r.role_id
-        LEFT JOIN departments d ON u.department_id = d.department_id
-        WHERE u.username = %s
-        """,
-        (username,),
-    )
-    if not user:
-        flash("演示账号不存在：%s" % username, "error")
-        return redirect(url_for("login"))
-    if user["account_status"] != "启用":
-        flash("演示账号已被锁定：%s" % username, "error")
-        return redirect(url_for("login"))
-
-    # 注意：这里没有取 password_hash，会话里不会带密码哈希
-    session["user"] = user
-    execute("UPDATE users SET last_login_at = NOW() WHERE user_id = %s", (user["user_id"],))
-    flash("已切换为 %s（%s）" % (user["user_name"], user["role_name"]), "success")
-
-    # 只接受站内相对路径，避免演示链接被改成外部地址（开放重定向）
-    target = request.args.get("next") or ""
-    if not target.startswith("/") or target.startswith("//"):
-        target = url_for("dashboard")
-    return redirect(target)
-
-
-@app.route("/demo/step", methods=["POST"])
-def demo_step():
-    """执行一步演示主线，返回 JSON。"""
-    ready, message = _demo_ready()
-    if not ready:
-        return jsonify({"ok": False, "error": message}), 403
-    payload = request.get_json(silent=True) or {}
-    key = (payload.get("step") or request.form.get("step") or "").strip()
-    return jsonify(demo_mode.run_step(key, _DEMO_HELPERS))
-
-
-@app.route("/demo/reset", methods=["POST"])
-def demo_reset():
-    """清空本轮演示状态（只重置控制台，不动任何业务数据）。"""
-    ready, message = _demo_ready()
-    if not ready:
-        return jsonify({"ok": False, "error": message}), 403
-    demo_mode.reset_state()
-    return jsonify({"ok": True, "message": "演示状态已重置，可以重新跑一轮。"})
 
 
 # ============================================================

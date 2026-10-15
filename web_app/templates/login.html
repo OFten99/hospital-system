@@ -21,28 +21,4 @@
     <button type="submit" style="width:100%">登 录</button>
   </form>
 </div>
-
-{# 演示模式下的免密快捷入口。未开 HIS_DEMO_MODE 时 demo_available 为假，
-   这一整块不会渲染，正常使用完全看不到。 #}
-{% if demo_available %}
-<div class="panel" style="margin-top:22px">
-  <h2>演示模式 · 一键登录<span class="dm-badge">DEMO</span></h2>
-  <p style="color:var(--muted);font-size:13px;margin:0 0 14px">
-    免密切换到任意角色，不用输账号密码。想完整走一遍「挂号 → 就诊 → 收费 → 发药」，
-    进控制台点「一键跑完全部」即可。
-  </p>
-  <div class="dm-role-grid">
-    {% for a in demo_accounts %}
-    <a class="dm-role-card" href="{{ url_for('demo_switch', username=a.username) }}">
-      <strong>{{ a.label }}</strong>
-      <code>{{ a.username }}</code>
-      <span>{{ a.desc }}</span>
-    </a>
-    {% endfor %}
-  </div>
-  <p style="margin:14px 0 0">
-    <a class="secondary-btn" href="{{ url_for('demo_console') }}">打开演示控制台 →</a>
-  </p>
-</div>
-{% endif %}
 {% endblock %}

@@ -70,19 +70,5 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
-
-  {# 演示模式快捷条：登录后每个页面常驻右下角，随手切换角色不用退回登录页。
-     未开 HIS_DEMO_MODE 时不渲染。 #}
-  {% if current_user and demo_available %}
-  <div class="dm-floatbar">
-    <span class="dm-badge">DEMO</span>
-    <a href="{{ url_for('demo_console') }}">演示控制台</a>
-    <span class="dm-float-sep"></span>
-    <span class="dm-float-current">当前 {{ current_user.username }}</span>
-    {% for a in demo_accounts if a.username != current_user.username %}
-    <a href="{{ url_for('demo_switch', username=a.username, next=request.path) }}">切换 {{ a.username }}</a>
-    {% endfor %}
-  </div>
-  {% endif %}
 </body>
 </html>

@@ -25,9 +25,6 @@ my_cloud_db.cnf
 # 运行时产生的导出文件
 web_app/exports/
 
-# 演示模式的本轮状态（patient_id / 单号等，属运行期数据）
-web_app/_demo_state.json
-
 # 论文与上传暂存目录
 report/
 论文素材/

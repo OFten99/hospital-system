@@ -504,8 +504,22 @@ def handle_param_error(error, default_message="提交参数格式错误，请检
 
 
 
+_MAKE_NO_SEQ = 0
+
+
 def make_no(prefix):
-    return prefix + datetime.now().strftime("%Y%m%d%H%M%S")
+    """生成业务单号：前缀 + 时间戳（精确到微秒）+ 进程内自增序号。
+
+    早期实现是「前缀 + 秒级时间戳」，同一秒内连续生成两单就会撞上
+    reg_no / prescription_no / payment_no / test_no 的唯一索引（MySQL 1062），
+    表现为第二次操作报「挂号单号已存在」/「处方号已存在」。
+    人工逐单操作时不易察觉，但收费窗口连续挂号、或脚本化批量验收时必然踩到。
+    这里加入微秒与自增序号，保证同一进程内绝不重复；
+    单号总长 ≤ 29 字符，仍小于各单号列宽（VARCHAR(30) / VARCHAR(40)）。
+    """
+    global _MAKE_NO_SEQ
+    _MAKE_NO_SEQ = (_MAKE_NO_SEQ + 1) % 100000
+    return "%s%s%05d" % (prefix, datetime.now().strftime("%Y%m%d%H%M%S%f"), _MAKE_NO_SEQ)
 
 
 # 可挂号排班列表的公共查询主体。

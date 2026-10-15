@@ -55,6 +55,11 @@ run_tests.bat   # 或 python -m unittest discover -s tests -v
 
 # 5. 打开「AI + 测试」演示台（可选，双击即可，无需数据库）
 #    ai_test_demo/index.html
+
+# 6. 要上台演示（答辩/验收）？先跑一次演示前准备
+#    补当天排班 + 打印演示清单（挂号页只查当天排班，不补会卡住）
+demo_prep.bat   # 或 python demo_prep.py
+#    完整演示流程见 演示脚本.md
 ```
 
 ## 部署到公网（免费）
@@ -121,6 +126,8 @@ git add . && git commit -m "更新" && git push
 ├── build_edgeone.py              # 生成 EdgeOne Makers 部署包
 ├── check_env.py                  # 环境自检
 ├── verify_hospital.py            # Web 端到端回归验证
+├── demo_prep.py / demo_prep.bat  # 演示前准备：补当天排班（挂号页只查当天）+ 打印演示清单
+├── 演示脚本.md                    # 答辩/验收演示脚本（分角色动线、台词、追问应答）
 ├── gen_testcases.py / gen_xmind.py
 ├── run_web.bat / start_mysql.bat / run_tests.bat
 └── 运行说明.md

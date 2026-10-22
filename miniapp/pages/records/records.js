@@ -118,7 +118,7 @@ Page({
       success: (res) => {
         if (!res.confirm) return;
         wx.showLoading({ title: '退号中…' });
-        api.cancelRegistration(id)
+        api.cancelRegistration(id, this.data.idCard, '患者线上退号')
           .then(() => {
             wx.hideLoading();
             wx.showToast({ title: '退号成功', icon: 'success' });

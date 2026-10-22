@@ -2,7 +2,7 @@
 
 这些用例把「架构约定」固化成断言，改代码时若破坏约定会立刻失败：
 
-  1. 路由规模口径（26 装饰器 / 25 业务端点 / 17 含 POST / 16 写路由）；
+  1. 路由规模口径（34 装饰器 / 34 端点 / 19 含 POST / 18 写路由）；
   2. 页面模板齐全（22 个）；
   3. 写路由统一的三层异常捕获结构（且顺序不可颠倒）；
   4. Jinja 模板陷阱回归（SQL 别名不得叫 items 等 dict 方法名）；
@@ -24,11 +24,12 @@ DB_PY = WEB_APP_DIR / "db.py"
 TEMPLATE_DIR = WEB_APP_DIR / "templates"
 
 # 与 README「项目规模」表一致的对外口径
-EXPECTED_DECORATORS = 26
-EXPECTED_RULES = 27            # 26 条 @app.route + Flask 自动注册的 /static/<path>
-EXPECTED_ENDPOINTS = 26        # 25 个业务端点 + static
-EXPECTED_POST_ENDPOINTS = 17   # 含只读表单的 /login
-EXPECTED_WRITE_ROUTES = 16     # 排除 /login
+# 2026-10-23 更新：补入小程序线上挂号 API（6 个端点，其中 2 个 POST）后的实际规模
+EXPECTED_DECORATORS = 34
+EXPECTED_RULES = 35            # 34 条 @app.route + Flask 自动注册的 /static/<path>
+EXPECTED_ENDPOINTS = 34        # 28 个后台端点 + 6 个小程序 API + static
+EXPECTED_POST_ENDPOINTS = 19   # 含只读表单的 /login
+EXPECTED_WRITE_ROUTES = 18     # 排除 /login
 EXPECTED_TEMPLATES = 22
 
 
@@ -144,7 +145,7 @@ class ExceptionLayeringTests(unittest.TestCase):
                 yield name, block
 
     def test_every_write_route_has_db_layers(self):
-        """16 个写路由必须全部有前两层 DB 异常捕获，且顺序不可颠倒。"""
+        """18 个写路由必须全部有前两层 DB 异常捕获，且顺序不可颠倒。"""
         checked = 0
         for name, block in self._post_blocks():
             if name in self.READ_ONLY_POST:
@@ -163,7 +164,7 @@ class ExceptionLayeringTests(unittest.TestCase):
                          "被检查的写路由数量与对外口径不符")
 
     def test_third_layer_coverage(self):
-        """第三层（参数缺失）覆盖 15/16：只有确实不需要它的路由可以省略。
+        """第三层（参数缺失）覆盖 17/18：只有确实不需要它的路由可以省略。
 
         约定：**只要路由里直接索引了表单字段（``request.form["x"]``）**，
         就必须有第三层，否则漏填字段会冒到全局 500。
@@ -183,7 +184,7 @@ class ExceptionLayeringTests(unittest.TestCase):
                 self.assertFalse(
                     indexes_form,
                     "%s 直接索引了表单字段却没有第三层捕获" % name)
-        self.assertEqual(len(with_third), 15, "应有 15 个写路由具备第三层")
+        self.assertEqual(len(with_third), 17, "应有 17 个写路由具备第三层")
         self.assertEqual(without_third, ["lab_results"],
                          "缺少第三层的路由应仅限 lab_results")
 
@@ -240,6 +241,9 @@ class JinjaTrapRegressionTests(unittest.TestCase):
         from tests.base import DB_AVAILABLE
         if not DB_AVAILABLE:
             self.skipTest("本地 MySQL 不可用")
+        # CSRF 校验在 TESTING 下豁免：test_client 是「直接 POST」，
+        # 没有浏览器里那段自动补 token 的脚本，不豁免会一律 400。
+        app_module.app.config["TESTING"] = True
         with app_module.app.test_client() as client:
             client.post("/login", data={"username": "admin01", "password": "123456"},
                         follow_redirects=True)

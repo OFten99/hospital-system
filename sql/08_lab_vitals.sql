@@ -297,6 +297,12 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '检验单已作废，不能录入结果';
   END IF;
 
+  -- 已完成的检验单视为「报告已出具」：结果可能已经打印给患者、被病历引用，
+  -- 事后回改会让病历与报告对不上。需要改必须先作废重开（留痕可追溯）。
+  IF v_status = '已完成' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '检验单已完成，结果不能再修改';
+  END IF;
+
   -- 先收费再检验：未收费的检验单不能录入结果
   SELECT COUNT(*) INTO v_paid
   FROM payments

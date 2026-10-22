@@ -70,5 +70,27 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+  <script>
+  /*
+   * 给页面里所有 POST 表单自动补上 CSRF 隐藏字段。
+   * 统一在这里注入，避免 22 个模板逐个手加 hidden input 时漏掉某一个
+   * （漏掉的那个功能会在提交时被服务端以 400 拒绝）。
+   */
+  (function () {
+    var token = {{ csrf_token()|tojson }};
+    var forms = document.querySelectorAll('form');
+    for (var i = 0; i < forms.length; i++) {
+      var form = forms[i];
+      var method = (form.getAttribute('method') || 'get').toLowerCase();
+      if (method !== 'post') { continue; }
+      if (form.querySelector('input[name="csrf_token"]')) { continue; }
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'csrf_token';
+      input.value = token;
+      form.appendChild(input);
+    }
+  })();
+  </script>
 </body>
 </html>

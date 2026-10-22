@@ -68,14 +68,19 @@ python init_database.py
 
 | 契约项 | 期望值 | 说明 |
 | --- | ---: | --- |
-| `@app.route` 装饰器数 | 26 | `/consultation` 有两个装饰器指向同一视图 |
-| `url_map` 规则数 | 27 | 含 Flask 自动注册的 `/static/<path:filename>` |
-| endpoint 数 | 26 | 含 `static` |
-| 支持 POST 的 endpoint 数 | 17 | |
-| 写路由数（排除只读 `/login`） | 16 | |
+| `@app.route` 装饰器数 | 34 | `/consultation` 有两个装饰器指向同一视图 |
+| `url_map` 规则数 | 35 | 含 Flask 自动注册的 `/static/<path:filename>` |
+| endpoint 数 | 34 | 含 `static` 与 6 个小程序 API（`/api/mini/*`） |
+| 支持 POST 的 endpoint 数 | 19 | 其中 2 个是小程序 JSON 接口 |
+| 写路由数（排除只读 `/login`） | 18 | |
 | 模板文件数 | 22 | 且每个 `render_template("x.html")` 都必须真实存在 |
-| 有数据库异常兜底（第 1+2 层）的写路由 | 16 / 16 | |
-| 有第三层参数异常兜底（`KeyError/TypeError/ValueError`）的写路由 | 15 | 唯一例外是 `lab_results` |
+| 有数据库异常兜底（第 1+2 层）的写路由 | 18 / 18 | |
+| 有第三层参数异常兜底（`KeyError/TypeError/ValueError`）的写路由 | 17 | 唯一例外是 `lab_results` |
+
+> **CSRF 与测试客户端**：生产环境所有表单 POST 都要带 CSRF token（由 `base.html`
+> 里的脚本自动注入 hidden 字段）。Flask 测试客户端是「直接 POST」，没有那段脚本，
+> 因此 `app.config["TESTING"] = True` 时 CSRF 校验被豁免；`/api/mini/*` 走 JSON
+> 接口，本来就不在 CSRF 覆盖范围内。
 
 关于 `lab_results`：它全程用 `request.form.get()` 取值，从不直接下标访问表单，
 因此不会抛 `KeyError`；`TESTING=True` 下若真出现参数异常会直接冒成 500，

@@ -34,6 +34,14 @@ import os
 
 import mysql.connector
 
+# Flask 可能不存在（命令行脚本 / 初始化脚本场景），导入失败时降级为「无请求上下文」。
+try:
+    from flask import g as _flask_g
+    from flask import has_app_context as _has_app_context
+except ImportError:                                   # pragma: no cover
+    _flask_g = None
+    _has_app_context = None
+
 TRUTHY = {"1", "true", "yes", "on", "y"}
 
 
@@ -115,14 +123,27 @@ def _safe_close(conn):
 
 
 def _healthy(conn):
-    """判断连接是否仍然可用；已断开时尝试自动重连。"""
+    """判断连接对象是否仍处于打开状态。
+
+    ⚠️ 这里**刻意不使用 conn.ping()**：ping 会向服务端发一次 COM_PING，
+    在云端（跨公网 + TLS）每次都是 30~50ms 的额外往返。而一个页面往往要
+    查十几次库，等于白扔几百毫秒。
+
+    ``is_connected()`` 只读本地 socket 状态，不产生网络流量，足够判断
+    「连接已被关闭」。真正的网络中断（TCP 半开）由查询层 ``_RETRYABLE``
+    捕获后重建连接兜底，见 ``_query`` / ``_write``。
+    """
     if conn is None:
         return False
     try:
-        conn.ping(reconnect=True)
-        return True
+        return bool(conn.is_connected())
     except Exception:
         return False
+
+
+# 连接级异常：网络抖动、连接被服务端断开、超时。读操作遇到这些会重建连接重试一次。
+_RETRYABLE_ERRORS = (mysql.connector.errors.OperationalError,
+                     mysql.connector.errors.InterfaceError)
 
 
 def _request_context():
@@ -130,15 +151,36 @@ def _request_context():
     如果当前处在 Flask 应用上下文（也就是一次 HTTP 请求）中，返回 g 对象，
     否则返回 None（命令行脚本 / 初始化脚本等场景）。
     """
+    if _has_app_context is None:          # flask 未安装（纯脚本环境）
+        return None
     if not _env_bool("HIS_DB_POOL", True):
         return None
+    if not _has_app_context():
+        return None
+    return _flask_g
+
+
+def _invalidate(conn):
+    """把已经不可用的连接从请求上下文里摘掉，下一次取连接会重建。"""
+    if conn is None:
+        return
+    _safe_close(conn)
+    context = _request_context()
+    if context is None:
+        return
+    for key in (_CONN_KEY, _CONN_KEY_NODB):
+        if getattr(context, key, None) is conn:
+            setattr(context, key, None)
+
+
+def _rollback_quiet(conn):
+    """回滚，忽略回滚过程中的一切异常（连接可能已经断了）。"""
+    if conn is None:
+        return
     try:
-        from flask import g, has_app_context
-    except ImportError:
-        return None
-    if not has_app_context():
-        return None
-    return g
+        conn.rollback()
+    except Exception:
+        pass
 
 
 def get_connection(with_database=True):
@@ -180,26 +222,41 @@ def close_request_connections(exc=None):
 # 查询辅助函数
 # ---------------------------------------------------------------
 
+def _query(sql, params, fetch):
+    """执行只读查询，连接级异常时重建连接重试一次。
+
+    为什么只对**读操作**做重试：读是幂等的，重试绝不会产生重复数据；
+    写操作一旦在 commit 之后断连，重试会造成重复扣费/重复挂号，
+    所以 ``_write`` 不做自动重试，只把坏连接摘掉让用户重新提交。
+    """
+    last_error = None
+    for attempt in (0, 1):
+        conn = get_connection()
+        cursor = None
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(sql, params or ())
+            return fetch(cursor)
+        except _RETRYABLE_ERRORS as error:
+            last_error = error
+            _invalidate(conn)
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+    raise last_error
+
+
 def fetch_all(sql, params=None):
     """执行查询并返回全部行（字典列表）。"""
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    try:
-        cursor.execute(sql, params or ())
-        return cursor.fetchall()
-    finally:
-        cursor.close()
+    return _query(sql, params, lambda cursor: cursor.fetchall())
 
 
 def fetch_one(sql, params=None):
     """执行查询并返回第一行（字典），无结果时返回 None。"""
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    try:
-        cursor.execute(sql, params or ())
-        return cursor.fetchone()
-    finally:
-        cursor.close()
+    return _query(sql, params, lambda cursor: cursor.fetchone())
 
 
 def execute(sql, params=None):
@@ -210,6 +267,10 @@ def execute(sql, params=None):
         cursor.execute(sql, params or ())
         conn.commit()
         return cursor.rowcount
+    except _RETRYABLE_ERRORS:
+        # 写操作不自动重试（可能已提交），但要把坏连接摘掉，避免后续语句继续踩坑
+        _invalidate(conn)
+        raise
     except Exception:
         try:
             conn.rollback()
@@ -230,11 +291,11 @@ def call_proc(proc_name, args):
         for result in cursor.stored_results():
             result.fetchall()
         conn.commit()
+    except _RETRYABLE_ERRORS:
+        _invalidate(conn)
+        raise
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        _rollback_quiet(conn)
         raise
     finally:
         cursor.close()
@@ -298,11 +359,11 @@ def call_proc_scalar(proc_name, args, out_index=None, out_type="INT"):
         if out_type.upper() == "VARCHAR":
             return value
         return int(value) if value is not None else None
+    except _RETRYABLE_ERRORS:
+        _invalidate(conn)
+        raise
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        _rollback_quiet(conn)
         raise
     finally:
         cursor.close()
@@ -330,11 +391,11 @@ def execute_atomic(statements):
             affected = cursor.rowcount
         conn.commit()
         return affected
+    except _RETRYABLE_ERRORS:
+        _invalidate(conn)
+        raise
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        _rollback_quiet(conn)
         raise
     finally:
         cursor.close()

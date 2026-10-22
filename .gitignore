@@ -22,6 +22,9 @@ my_his.cnf
 my_cloud_db.cnf
 .env
 
+# 会话密钥（首次启动自动生成，等同于凭据，禁止上传）
+.his_secret_key
+
 # 运行时产生的导出文件
 web_app/exports/
 

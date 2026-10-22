@@ -40,6 +40,9 @@ memory/
 # 微信开发者工具本地私有配置（含个人本地设置，不上传）
 miniapp/project.private.config.json
 
+# 小程序项目配置（含正式 AppID，上传体验版时本地改回，不上传公开仓库）
+miniapp/project.config.json
+
 # 课程报告（含学生姓名、学号等个人信息，不上传公开仓库）
 课程报告/
 

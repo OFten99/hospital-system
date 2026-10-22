@@ -36,7 +36,6 @@
       </select>
     </label>
     <label>联系地址 <input name="address"></label>
-    <label style="grid-column:1 / -1">既往病史 <input name="medical_history"></label>
     <div style="grid-column:1 / -1"><button type="submit">建档</button></div>
   </form>
 </div>
@@ -46,7 +45,7 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>编号</th><th>病历号</th><th>姓名</th><th>性别</th><th>出生日期</th><th>身份证号</th><th>电话</th><th>血型</th><th>地址</th><th>既往病史</th><th>操作</th></tr>
+        <tr><th>编号</th><th>病历号</th><th>姓名</th><th>性别</th><th>出生日期</th><th>身份证号</th><th>电话</th><th>血型</th><th>地址</th><th>操作</th></tr>
       </thead>
       <tbody>
         {% for row in rows %}
@@ -60,7 +59,6 @@
           <td>{{ row.phone }}</td>
           <td>{{ row.blood_type }}</td>
           <td>{{ row.address or '-' }}</td>
-          <td>{{ row.medical_history or '-' }}</td>
           <td>
             <div class="actions">
               <form class="inline-form" method="post" onsubmit="return confirm('确定删除该患者档案？若已有业务记录将被阻止。')">
@@ -72,7 +70,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="11">暂无患者数据</td></tr>
+        <tr><td colspan="10">暂无患者数据</td></tr>
         {% endfor %}
       </tbody>
     </table>

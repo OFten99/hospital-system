@@ -196,6 +196,11 @@ button:hover, .secondary-btn:hover { background: var(--accent-dark); }
 .form-tip { color: var(--muted); font-size: 0.92rem; margin-bottom: 0; }
 .inline-form { display: inline; }
 
+/* 科室管理：编辑区占满剩余空间，删除按钮靠右、与「保存」左右分居 */
+.dept-actions { display: flex; align-items: center; gap: 12px; }
+.dept-actions .dept-edit { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; }
+.dept-actions .dept-delete { flex: 0 0 auto; margin-left: auto; }
+
 .table-wrap {
   overflow: auto;
   max-height: 680px;

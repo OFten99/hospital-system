@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 title HIS Web - Hospital Outpatient System
 cd /d "%~dp0web_app"
 

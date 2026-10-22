@@ -1,0 +1,7 @@
+# 批处理文件必须用 CRLF 换行，否则 cmd.exe 解析 goto 标签会出错。
+# 另外这些 .bat 均以 GBK(cp936) 保存、首行固定 chcp 936：
+# 在中文 Windows 下「UTF-8 文件 + chcp 65001 + goto」会让 cmd.exe 算错行偏移，
+# 把注释后半截当成命令执行（报 'xxx' is not recognized...）甚至直接闪退。
+# 因此不要把这几个 .bat 转成 UTF-8 或 LF。
+*.bat text eol=crlf
+*.cmd text eol=crlf

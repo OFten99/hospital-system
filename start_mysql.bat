@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 title HIS MySQL Launcher
 
 rem Silent mode: run_web.bat calls this with "silent" to avoid pausing

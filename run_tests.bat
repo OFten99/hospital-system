@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 title HIS Test Suite - Hospital Outpatient System
 cd /d "%~dp0"
 
@@ -31,8 +31,8 @@ if errorlevel 1 goto DEPFAIL
 goto CHECKMYSQL
 
 rem ================= 3. Database (optional) =================
-rem ç¦»çº¿æ ¡éªŒç”¨ä¾‹ï¼ˆè·¯ç”±æ¸…å• / å¼‚å¸¸åˆ†å±‚ / å¯†ç å“ˆå¸Œ / ç»“æžœæ ‡å¿—â€¦ï¼‰ä¸éœ€è¦æ•°æ®åº“ã€‚
-rem æ•°æ®åº“ä¸å¯ç”¨æ—¶ï¼Œä¸šåŠ¡é›†æˆç”¨ä¾‹ä¼šä¼˜é›…è·³è¿‡è€Œä¸æ˜¯æŠ¥é”™ï¼Œæ‰€ä»¥è¿™é‡Œä¸å¼ºåˆ¶å¯åŠ¨ MySQLã€‚
+rem ÀëÏßÐ£ÑéÓÃÀý£¨Â·ÓÉÇåµ¥ / Òì³£·Ö²ã / ÃÜÂë¹þÏ£ / ½á¹û±êÖ¾¡­£©²»ÐèÒªÊý¾Ý¿â¡£
+rem Êý¾Ý¿â²»¿ÉÓÃÊ±£¬ÒµÎñ¼¯³ÉÓÃÀý»áÓÅÑÅÌø¹ý¶ø²»ÊÇ±¨´í£¬ËùÒÔÕâÀï²»Ç¿ÖÆÆô¶¯ MySQL¡£
 :CHECKMYSQL
 netstat -ano | findstr ":3306" | findstr "LISTENING" >nul
 if errorlevel 1 goto NODB

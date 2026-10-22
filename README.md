@@ -52,37 +52,11 @@ run_web.bat   # 或 cd web_app && python app.py
 
 # 4. 跑一遍自动化测试（可选，172 个用例）
 run_tests.bat   # 或 python -m unittest discover -s tests -v
+
+# 5. 演示前先跑一次准备脚本，补当天排班 + 打印演示清单
+#    （挂号页只查当天排班，不补会卡住）
+demo_prep.bat   # 或 python demo_prep.py
 ```
-
-## 部署到公网（免费）
-
-项目已适配 **腾讯云 EdgeOne Makers**（原 EdgeOne Pages，Python 云函数，原生支持 Flask 框架），
-配合免费云 MySQL 即可让任何人通过网址访问，**数据库的存储过程与触发器原样保留**。
-
-```bash
-# 1. 把数据库导到云端（首次运行会引导填写连接信息，存入 my_cloud_db.cnf）
-python deploy_cloud_db.py           # 或双击 deploy_cloud_db.bat
-
-# 2. 同步云函数目录（改过 web_app/ 代码后必跑）
-python build_edgeone.py
-
-# 3. 推送，EdgeOne 自动构建部署
-git add . && git commit -m "更新" && git push
-```
-
-之后在 EdgeOne Makers 控制台（console.tencentcloud.com/edgeone）导入本仓库即可自动构建部署。
-
-> 注：平台免费分配的 `xxx.edgeone.site` 项目域名在中国大陆访问时**只提供 3 小时有效的
-> 预览链接**（超时返回 401），想让链接长期可用需绑定自己的域名。详见部署文档第八之二节。
-
-完整步骤（免费 MySQL 创建、SQL 导入、环境变量配置、报错排查）见
-**[docs/部署到公网_EdgeOne.md](docs/部署到公网_EdgeOne.md)**。
-
-> ⚠️ 上面的流程解决的是「**怎么把系统跑起来、拿到一个能演示的网址**」。
-> 如果要让**不认识的人长期访问**，还有一些事情必须做（关闭调试模式、替换默认
-> `HIS_SECRET_KEY`、给 `/healthz` 加令牌、改掉 7 个 `123456` 演示密码、补 CSRF 与限流等），
-> 清单见 **[docs/上线前检查清单_生产部署.md](docs/上线前检查清单_生产部署.md)**。
-
 ## 目录结构
 
 ```
@@ -97,22 +71,16 @@ git add . && git commit -m "更新" && git push
 │   ├── test_prescription_payment_pharmacy.py  # 开方 / 收费 / 退费 / 发药
 │   ├── test_admin_and_lab.py     #   字典维护 / 检验科流程 / 诊断 / 报表导出
 │   └── README.md                 #   测试说明与接口契约清单
-├── cloud-functions/              # EdgeOne Makers 云函数目录（由 build_edgeone.py 自动生成，勿手改）
 ├── docs/
-│   ├── 部署到公网_EdgeOne.md              # 免费部署到公网的完整步骤
-│   ├── 上线前检查清单_生产部署.md          # 真实上线前要做的事（安全加固 / 运维配套）
 │   ├── screenshots/                     # 系统运行截图 10 张
 │   ├── 黑盒测试用例_医院门诊管理系统.csv   # 50 条黑盒用例（禅道导入格式，GBK）
 │   ├── 黑盒测试用例_医院门诊管理系统.xlsx  # 同上，Excel 版
 │   └── 医院门诊管理系统需求分析.xmind       # 需求思维导图
 ├── 医院门诊管理系统-项目讲解稿.md / .docx   # 项目讲解稿与面试问答（本地资料，未纳入版本管理）
-├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析，支持云端 --ssl）
-├── deploy_cloud_db.py            # 云端数据库一键部署（连接测试 → 权限预检 → 导入 → 校验）
-├── deploy_cloud_db.bat           # 上面脚本的 Windows 双击入口
-├── edit_db_config.bat            # 用记事本打开 my_cloud_db.cnf 填连接信息
-├── build_edgeone.py              # 生成 EdgeOne Makers 部署包
+├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析，支持 --ssl）
 ├── check_env.py                  # 环境自检
 ├── verify_hospital.py            # Web 端到端回归验证
+├── demo_prep.py / demo_prep.bat  # 演示前准备：补当天排班（挂号页只查当天）+ 打印演示清单
 ├── gen_testcases.py / gen_xmind.py
 ├── run_web.bat / start_mysql.bat / run_tests.bat
 └── 运行说明.md
@@ -228,7 +196,7 @@ except (KeyError, TypeError, ValueError) as error:       # ③ 必填项缺失�
 字段共 11 列：
 所属模块 / 用例标题 / 前置条件 / 步骤 / 预期 / 优先级 / 用例类型 / 适用阶段 / 关键词 / 用例状态 / 备注。
 
-生成脚本：`gen_testcases.py`（用例数据与 CSV 导出）、`gen_xmind.py`（需求思维导图）。
+对应脚本：`gen_testcases.py`（测试用例数据）、`gen_xmind.py`（需求思维导图）。
 
 
 ## 版权与使用许可

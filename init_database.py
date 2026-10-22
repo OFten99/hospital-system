@@ -54,6 +54,9 @@ SQL_FILES = [
     "12_users_phone_nullable.sql",
     "13_medical_records.sql",
     "14_fix_reg_aggregates.sql",
+    # 15 代码审查后的数据库层修复：patients.phone 可空、补索引、
+    #    重建 sp_register / sp_charge / sp_record_lab_result（排队号、库存、检验锁定）
+    "15_security_and_perf_fixes.sql",
 ]
 
 TRUTHY = {"1", "true", "yes", "on", "y"}

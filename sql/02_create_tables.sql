@@ -93,7 +93,10 @@ CREATE TABLE patients (
   gender ENUM('男','女') NOT NULL COMMENT '性别',
   birth_date DATE NULL COMMENT '出生日期',
   id_card VARCHAR(30) NOT NULL UNIQUE COMMENT '身份证号',
-  phone VARCHAR(20) NOT NULL UNIQUE COMMENT '联系电话',
+  -- 手机号放开为可空：线上（小程序）自助建档时患者可能不填手机号，
+  -- NOT NULL + 空字符串会让「第二个没填手机号的人」撞唯一索引（1062）。
+  -- 后台 /patients 建档表单仍是必填，业务规则不变。
+  phone VARCHAR(20) NULL UNIQUE COMMENT '联系电话（线上自助建档可空）',
   address VARCHAR(200) NULL COMMENT '联系地址',
   blood_type ENUM('A','B','AB','O','未知') NOT NULL DEFAULT '未知' COMMENT '血型',
   medical_history VARCHAR(500) NULL COMMENT '既往病史',

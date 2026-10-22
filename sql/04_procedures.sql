@@ -124,7 +124,12 @@ BEGIN
   SELECT consultation_fee INTO v_fee FROM doctors WHERE doctor_id = p_doctor_id;
   SELECT department_id INTO v_department_id FROM users u JOIN doctors doc ON u.user_id = doc.user_id WHERE doc.doctor_id = p_doctor_id;
 
-  SET v_queue = v_registered + 1;
+  -- 排队号不能直接用 registered_count + 1：退号会把 registered_count 减 1，
+  -- 下一位患者就会拿到一个「已经叫过」的号码（叫号屏上出现两个 7 号）。
+  -- 改为按「该医生当天已发出的最大排队号 + 1」取号，退号留下的空号不复用。
+  SELECT COALESCE(MAX(queue_no), 0) + 1 INTO v_queue
+  FROM registrations
+  WHERE doctor_id = p_doctor_id AND reg_date = CURDATE();
 
   INSERT INTO registrations (
     reg_no, patient_id, doctor_id, department_id, reg_date,
@@ -357,9 +362,18 @@ BEGIN
     IF v_done = 1 THEN
       LEAVE stock_loop;
     END IF;
+    -- 开方时校验过库存，但到收费窗口时可能已被别的处方抢先扣完。
+    -- 原实现是 GREATEST(stock_quantity - v_quantity, 0)：库存不足时静默扣成 0，
+    -- 钱照收、药却发不出，账面与实物对不上。这里改成「条件扣减 + 不足即报错」，
+    -- 整笔收费回滚，由收费员去处理（改处方或补货）。
     UPDATE medicines
-    SET stock_quantity = GREATEST(stock_quantity - v_quantity, 0)
-    WHERE medicine_id = v_medicine_id;
+    SET stock_quantity = stock_quantity - v_quantity
+    WHERE medicine_id = v_medicine_id
+      AND stock_quantity >= v_quantity;
+    IF ROW_COUNT() = 0 THEN
+      SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = '药品库存不足，无法收费，请调整处方或补充库存';
+    END IF;
   END LOOP;
   CLOSE cur_items;
 

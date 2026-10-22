@@ -14,6 +14,9 @@ import io
 import json
 import os
 import re
+import secrets
+import threading
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -111,18 +114,60 @@ if _USE_MEM_STATIC:
                      view_func=_serve_static_from_memory, methods=["GET"])
 # 会话密钥。
 #
-# 这里刻意不改成「每次启动随机生成」：本项目运行在 EdgeOne 云函数上，冷启动会
-# 重建进程，密钥一变所有用户的登录态立刻失效（表现为「刚登录就被登出」）。
-# 所以未配置环境变量时回退到固定值保证可用，但会在启动日志里明确告警，
-# 线上请务必把 HIS_SECRET_KEY 设为随机串。
+# 历史问题：未配置 HIS_SECRET_KEY 时会回退到一个写死在源码里的固定串，
+# 任何人都能用它伪造 session cookie（自签一个 role_code=ADMIN 直接进后台）。
+#
+# 现在改成「三级来源」：
+#   1. 环境变量 HIS_SECRET_KEY（云端首选）；
+#   2. 持久化密钥文件 .his_secret_key（首次启动生成 64 字节随机串并落盘）。
+#      用文件而不是「每次启动随机」，是因为 EdgeOne 云函数冷启动会重建进程，
+#      密钥一变所有用户的登录态立刻失效（表现为「刚登录就被登出」）；
+#   3. 文件系统只读时才回退到内置值，并在启动日志里显著告警。
 _DEV_SECRET_FALLBACK = "hospital-outpatient-his-course-design"
-_ENV_SECRET = os.getenv("HIS_SECRET_KEY", "").strip()
-app.secret_key = _ENV_SECRET or _DEV_SECRET_FALLBACK
-if not _ENV_SECRET:
+_SECRET_FILE = Path(os.getenv("HIS_SECRET_FILE")
+                    or (Path(__file__).resolve().parent.parent / ".his_secret_key"))
+
+
+def _load_or_create_secret():
+    """返回 (密钥, 来源)。来源仅用于启动日志。"""
+    env_secret = os.getenv("HIS_SECRET_KEY", "").strip()
+    if env_secret:
+        return env_secret, "env"
+    try:
+        if _SECRET_FILE.exists():
+            text = _SECRET_FILE.read_text(encoding="utf-8").strip()
+            if len(text) >= 32:
+                return text, "file"
+        token = secrets.token_urlsafe(48)
+        _SECRET_FILE.write_text(token, encoding="utf-8")
+        try:
+            os.chmod(_SECRET_FILE, 0o600)
+        except Exception:
+            pass          # Windows 上 chmod 语义有限，忽略
+        return token, "generated"
+    except Exception as error:      # 只读文件系统（部分云函数环境）
+        _logging.getLogger(__name__).warning(
+            "HIS 无法读写密钥文件 %s（%s），回退到内置密钥。", _SECRET_FILE, error)
+        return _DEV_SECRET_FALLBACK, "fallback"
+
+
+app.secret_key, _SECRET_SOURCE = _load_or_create_secret()
+if _SECRET_SOURCE == "fallback":
     _logging.getLogger(__name__).warning(
-        "HIS 未设置 HIS_SECRET_KEY，正在使用内置默认密钥；"
-        "线上（EdgeOne 或任何公网环境）请务必设置为随机串，否则会话密钥可被推测。"
-    )
+        "HIS 正在使用内置默认密钥，会话可被伪造；请设置 HIS_SECRET_KEY 环境变量。")
+elif _SECRET_SOURCE == "generated":
+    _logging.getLogger(__name__).warning(
+        "HIS 已生成新会话密钥并写入 %s（所有旧登录态失效，需重新登录一次）。", _SECRET_FILE)
+
+# 会话 cookie 加固：禁止 JS 读取、禁止跨站携带。
+# 本项目全部为服务端渲染 + 同站表单提交，SameSite=Lax 不影响任何功能。
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    # 本地是 http，强制 Secure 会导致登录后立刻掉线，因此按是否 HTTPS 部署自动决定
+    SESSION_COOKIE_SECURE=os.getenv("HIS_COOKIE_SECURE", "0") == "1",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
 # 全局注入内嵌 CSS：云端 /static/ 请求被 EdgeOne 静态资源层拦截（产物中无该文件
 # 时直接 500 且不进云函数），因此把样式随 HTML 一起渲染，保证云端界面与本地一致。
 def _load_style_css():
@@ -154,12 +199,47 @@ def release_db_connections(exc=None):
 
 
 @app.after_request
-def add_no_cache(response):
-    """禁用页面缓存，确保用户刷新后始终看到最新界面"""
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+def harden_response(response):
+    """安全响应头 + 禁用动态页面缓存。
+
+    注意 no-store **只给动态页面**：历史实现对 /static/* 也加了 no-store，
+    导致样式和脚本每次刷新都重新下载（本来靠内联 CSS 掩盖了这个问题）。
+    """
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")          # 防点击劫持
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy",
+                                "geolocation=(), microphone=(), camera=()")
+    if not request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    # 小程序 JSON 接口允许跨域，供鸿蒙 App 的 WebView 挂号页直接调用。
+    # 仅限 /api/mini/*：这些接口本来就是给外部客户端用的，本身不做 Cookie 鉴权，
+    # 所以放开 Origin 不会带来会话劫持风险；其余路由保持默认（不放行）。
+    if request.path.startswith("/api/mini/"):
+        response.headers.setdefault("Access-Control-Allow-Origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type")
     return response
+
+
+@app.before_request
+def mini_api_cors_preflight():
+    """/api/mini/* 的 CORS 预检请求直接返回 204。
+
+    Flask 对只声明了 GET/POST 的路由会把 OPTIONS 判成 405，预检失败浏览器就会
+    拦掉 subsequent 的 POST（挂号的 JSON 提交带 Content-Type，必然触发预检）。
+    在 before_request 里短路，比给 8 个路由逐个加 methods 更不容易漏。
+    """
+    if request.method == "OPTIONS" and request.path.startswith("/api/mini/"):
+        response = app.make_response(("", 204))
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Max-Age"] = "600"
+        return response
+    return None
 
 
 @app.errorhandler(Exception)
@@ -232,6 +312,23 @@ def hash_password(password):
     return generate_password_hash(password, method=_PASSWORD_HASH_METHOD)
 
 
+# 密码长度下限取 6：既拦住「空密码 / 1 位密码」这类明显弱口令，
+# 又不影响课程演示统一使用的 123456。
+_PASSWORD_MIN_LEN = 6
+_PASSWORD_MAX_LEN = 64
+
+
+def password_problem(password):
+    """返回不合格原因；None 表示通过。"""
+    if not password:
+        return "密码不能为空。"
+    if len(password) < _PASSWORD_MIN_LEN:
+        return "密码长度至少 %d 位。" % _PASSWORD_MIN_LEN
+    if len(password) > _PASSWORD_MAX_LEN:
+        return "密码长度不能超过 %d 位。" % _PASSWORD_MAX_LEN
+    return None
+
+
 def verify_password(stored_hash, password):
     """校验密码，同时支持加盐哈希与历史无盐 SHA-256 两种格式。"""
     if not stored_hash:
@@ -250,10 +347,160 @@ def current_user():
     return session.get("user")
 
 
+# ---------------------------------------------------------------
+# 安全基础设施：CSRF / 登录限流 / 会话状态复核
+# ---------------------------------------------------------------
+_CSRF_ENABLED = os.getenv("HIS_CSRF", "1").strip().lower() not in {"0", "false", "no", "off"}
+_CSRF_SESSION_KEY = "_csrf_token"
+_CSRF_FORM_FIELD = "csrf_token"
+
+
+def csrf_token():
+    """取/生成当前会话的 CSRF token（写入 session，随页面下发）。"""
+    token = session.get(_CSRF_SESSION_KEY)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session[_CSRF_SESSION_KEY] = token
+    return token
+
+
+def _client_ip():
+    """尽力取真实来源 IP。
+
+    X-Forwarded-For 可被伪造，因此这里只用于「日志 + 尽力限流」，
+    不作为任何授权判断依据（限流可被绕过，但比完全不限流强）。
+    """
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or "-"
+
+
+def _is_loopback():
+    """请求是否来自本机（用于 /healthz 详情页的放行判断）。"""
+    addr = (request.remote_addr or "").strip()
+    return addr in ("127.0.0.1", "::1", "localhost")
+
+
+@app.before_request
+def verify_csrf():
+    """所有表单 POST 必须带会话内签发的 CSRF token。
+
+    - 小程序 JSON 接口（/api/mini/*）不走表单，改由来源限流 + 归属校验保护；
+    - ``TESTING`` 下豁免，否则 172 条业务集成用例全部要改造成带 token 提交。
+    """
+    if request.method != "POST":
+        return None
+    if not _CSRF_ENABLED or app.config.get("TESTING") or request.path.startswith("/api/mini/"):
+        return None
+    sent = request.form.get(_CSRF_FORM_FIELD) or request.headers.get("X-CSRF-Token", "")
+    expected = session.get(_CSRF_SESSION_KEY) or ""
+    if expected and sent and hmac.compare_digest(sent, expected):
+        return None
+    app.logger.warning("CSRF 校验失败：path=%s ip=%s", request.path, _client_ip())
+    return Response(
+        "表单已过期或来源不可信（CSRF 校验未通过）。\n"
+        "请返回上一页刷新后重新提交；若反复出现，请确认浏览器已启用 JavaScript。\n",
+        status=400, mimetype="text/plain; charset=utf-8",
+    )
+
+
+# ---- 登录限流：同一 IP+账号 5 次失败锁 10 分钟 ----
+_LOGIN_MAX_FAILS = 5
+_LOGIN_FAIL_WINDOW = 300
+_LOGIN_LOCK_SECONDS = 600
+_login_failures = {}
+_login_lock = threading.Lock()
+
+
+def _login_blocked_seconds(key):
+    now = time.time()
+    with _login_lock:
+        rec = _login_failures.get(key)
+        if not rec:
+            return 0
+        if rec["locked_until"] > now:
+            return int(rec["locked_until"] - now)
+        if now - rec["first"] > _LOGIN_FAIL_WINDOW:
+            _login_failures.pop(key, None)
+        return 0
+
+
+def _login_record_failure(key):
+    now = time.time()
+    with _login_lock:
+        rec = _login_failures.get(key)
+        if not rec or now - rec["first"] > _LOGIN_FAIL_WINDOW:
+            rec = {"count": 0, "first": now, "locked_until": 0}
+            _login_failures[key] = rec
+        rec["count"] += 1
+        if rec["count"] >= _LOGIN_MAX_FAILS:
+            rec["locked_until"] = now + _LOGIN_LOCK_SECONDS
+        # 防止长期运行后字典无界增长
+        if len(_login_failures) > 5000:
+            stale = [k for k, v in _login_failures.items()
+                     if v["locked_until"] < now and now - v["first"] > _LOGIN_FAIL_WINDOW]
+            for k in stale:
+                _login_failures.pop(k, None)
+
+
+def _login_clear(key):
+    with _login_lock:
+        _login_failures.pop(key, None)
+
+
+# ---- 会话状态复核：账号被锁定/删除/改角色后，最长 60 秒内生效 ----
+# session 里存的是登录那一刻的用户快照，管理员「锁定账号」后，
+# 已登录的浏览器原本可以继续操作到会话过期。这里按 user_id 做一次轻量复核。
+_SESSION_RECHECK_SECONDS = 60
+_session_checked_at = {}
+
+
+def _revalidate_session(user):
+    """返回 True 表示会话仍然有效；False 表示应强制退出。"""
+    uid = user.get("user_id")
+    if not uid:
+        return False
+    now = time.time()
+    if now - _session_checked_at.get(uid, 0) < _SESSION_RECHECK_SECONDS:
+        return True
+    try:
+        row = fetch_one(
+            """
+            SELECT u.account_status, r.role_code, r.role_name, d.department_name
+            FROM users u
+            JOIN roles r ON u.role_id = r.role_id
+            LEFT JOIN departments d ON u.department_id = d.department_id
+            WHERE u.user_id = %s
+            """,
+            (uid,),
+        )
+    except Exception:
+        # 复核失败（数据库抖动）时不踢人，交给后续业务查询自己报错
+        return True
+    if not row or row["account_status"] != "启用":
+        _session_checked_at.pop(uid, None)
+        return False
+    # 角色/科室被管理员调整过：刷新快照，避免越权或菜单错乱
+    changed = (row["role_code"] != user.get("role_code")
+               or row["department_name"] != user.get("department_name"))
+    if changed:
+        user.update(role_code=row["role_code"], role_name=row["role_name"],
+                    department_name=row["department_name"])
+        session["user"] = user
+    _session_checked_at[uid] = now
+    return True
+
+
 def login_required(view_func):
     @wraps(view_func)
     def wrapper(*args, **kwargs):
-        if not current_user():
+        user = current_user()
+        if not user:
+            return redirect(url_for("login"))
+        if not _revalidate_session(user):
+            session.clear()
+            flash("账号已被锁定或删除，请重新登录。", "error")
             return redirect(url_for("login"))
         return view_func(*args, **kwargs)
 
@@ -309,7 +556,14 @@ def inject_common_data():
         "current_user": current_user(),
         "role_allowed": role_allowed,
         "now": datetime.now(),
+        "csrf_token": csrf_token,
     }
+
+
+# 是否把 MySQL 原始报错回显给前端。默认关闭：
+# 原始报错里含表名、列名、SQL 片段，小程序 API 又是无鉴权入口，
+# 等于把库结构送给任何能触发错误的人。本地排查时设 HIS_SHOW_SQL_ERROR=1。
+_SHOW_SQL_ERROR = os.getenv("HIS_SHOW_SQL_ERROR", "0").strip() == "1"
 
 
 def handle_db_error(error):
@@ -353,7 +607,13 @@ def handle_db_error(error):
         return ("提交的取值不在该字段允许的范围内（账号状态、性别、支付方式、"
                 "药品类型等下拉项请重新选择），或输入格式与字段类型不符，请检查后重试。")
 
-    return f"数据库操作失败：{message}"
+    return f"数据库操作失败：{message}" if _SHOW_SQL_ERROR else _generic_db_error(message)
+
+
+def _generic_db_error(message):
+    """把不认识的数据库异常收敛成一句人话，原文只进服务端日志。"""
+    app.logger.error("未分类的数据库异常：%s", message)
+    return "数据库操作失败，请稍后重试；若持续失败请联系系统管理员。"
 # ---------------------------------------------------------------
 # 异常分层（统一在这里翻译成用户能看懂的中文）
 #
@@ -565,17 +825,21 @@ _ENV_ADVICE = {
 
 @app.route("/healthz", methods=["GET"])
 def healthz():
-    # 自检页会暴露数据库主机、用户名、库名等信息。公网部署时建议把
-    # HIS_HEALTH_TOKEN 设为随机串，此后必须带 ?token=xxx 才能看到详情。
-    # 未设置该环境变量时保持开放，方便本地调试与课堂演示。
+    # 自检页会暴露数据库主机、用户名、库名等信息，因此分三种情况：
+    #   1. 配了 HIS_HEALTH_TOKEN：必须带 ?token=xxx 才能看详情；
+    #   2. 没配令牌但来自本机（127.0.0.1）：放行，方便本地调试与离线测试；
+    #   3. 没配令牌且来自外部：只回一个 "OK"，不泄露任何环境细节。
     health_token = os.getenv("HIS_HEALTH_TOKEN", "").strip()
-    if health_token and request.args.get("token", "") != health_token:
-        return Response(
-            "部署自检详情需要访问令牌：/healthz?token=xxx\n"
-            "（令牌由环境变量 HIS_HEALTH_TOKEN 指定）\n",
-            status=403,
-            mimetype="text/plain; charset=utf-8",
-        )
+    if health_token:
+        if not hmac.compare_digest(request.args.get("token", "").strip(), health_token):
+            return Response(
+                "部署自检详情需要访问令牌：/healthz?token=xxx\n"
+                "（令牌由环境变量 HIS_HEALTH_TOKEN 指定）\n",
+                status=403,
+                mimetype="text/plain; charset=utf-8",
+            )
+    elif not _is_loopback():
+        return Response("OK\n", mimetype="text/plain; charset=utf-8")
 
     import platform
 
@@ -634,6 +898,15 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
+
+        # 限流：同一来源 IP + 账号 5 次失败锁 10 分钟，挡住慢速爆破
+        throttle_key = "%s|%s" % (_client_ip(), username.lower())
+        wait = _login_blocked_seconds(throttle_key)
+        if wait > 0:
+            flash("尝试次数过多，账号已被临时锁定，请 %d 分钟后再试。"
+                  % max(1, (wait + 59) // 60), "error")
+            return render_template("login.html")
+
         user = fetch_one(
             """
             SELECT
@@ -649,11 +922,13 @@ def login():
         if not user:
             # 账号不存在时也跑一次校验，拉平响应耗时，避免被用来枚举用户名
             verify_password(_DUMMY_HASH, password)
+            _login_record_failure(throttle_key)
             flash("用户名或密码错误。", "error")
             return render_template("login.html")
         # 取出后立刻从字典剔除，避免密码哈希被写进会话 Cookie
         stored_hash = user.pop("password_hash", None)
         if not verify_password(stored_hash, password):
+            _login_record_failure(throttle_key)
             flash("用户名或密码错误。", "error")
             return render_template("login.html")
         if user["account_status"] != "启用":
@@ -665,7 +940,12 @@ def login():
                 "UPDATE users SET password_hash = %s WHERE user_id = %s",
                 (hash_password(password), user["user_id"]),
             )
+        _login_clear(throttle_key)
+        # 登录成功先清空会话，防会话固定攻击（攻击者预先塞一个已知 session id）
+        session.clear()
         session["user"] = user
+        session.permanent = True
+        _session_checked_at[user["user_id"]] = time.time()
         execute("UPDATE users SET last_login_at = NOW() WHERE user_id = %s", (user["user_id"],))
         flash(f"登录成功：{user['user_name']}（{user['role_name']}）", "success")
         return redirect(url_for("dashboard"))
@@ -687,24 +967,26 @@ def logout():
 @login_required
 def dashboard():
     today = datetime.now().strftime("%Y-%m-%d")
-    stats = {
-        "today_reg": fetch_one(
-            "SELECT COUNT(*) AS v FROM registrations WHERE reg_date = %s AND visit_status <> '已退号'", (today,)
-        )["v"],
-        "today_visited": fetch_one(
-            "SELECT COUNT(*) AS v FROM registrations WHERE reg_date = %s AND visit_status = '已就诊'", (today,)
-        )["v"],
-        "waiting_pres": fetch_one(
-            "SELECT COUNT(*) AS v FROM prescriptions WHERE prescription_status = '待收费'"
-        )["v"],
-        "today_income": fetch_one(
-            """
-            SELECT COALESCE(SUM(pay_amount), 0) AS v FROM payments
-            WHERE DATE(pay_time) = %s AND pay_status = '已收费'
-            """,
-            (today,),
-        )["v"],
-    }
+    # 四个看板指标合并成一条 SQL（子查询），一次数据库往返取完。
+    # 原实现是 4 次独立 COUNT 查询，在云端每次都含一次网络往返。
+    #
+    # 金额统计用「左闭右开区间」而不是 DATE(pay_time) = %s：
+    # 后者把函数套在列上，pay_time 上的索引直接失效，payments 一多就是全表扫。
+    stats = fetch_one(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM registrations
+            WHERE reg_date = %s AND visit_status <> '已退号')            AS today_reg,
+          (SELECT COUNT(*) FROM registrations
+            WHERE reg_date = %s AND visit_status = '已就诊')             AS today_visited,
+          (SELECT COUNT(*) FROM prescriptions
+            WHERE prescription_status = '待收费')                        AS waiting_pres,
+          (SELECT COALESCE(SUM(pay_amount), 0) FROM payments
+            WHERE pay_time >= %s AND pay_time < DATE_ADD(%s, INTERVAL 1 DAY)
+              AND pay_status = '已收费')                                 AS today_income
+        """,
+        (today, today, today, today),
+    )
     reg_by_dept = fetch_all("SELECT * FROM v_today_registrations ORDER BY registration_count DESC")
     notices = fetch_all(
         """
@@ -791,6 +1073,9 @@ def patients():
         return redirect(url_for("patients"))
 
     keyword = request.args.get("keyword", "").strip()
+    # 说明：这里保留 `%keyword%` 双通配（医疗场景常用「身份证后 6 位」反查患者，
+    # 改成前缀匹配会直接废掉这个用法），代价是该查询用不上索引。
+    # 因此用 LIMIT 兜底，避免患者表变大后整页拖慢。
     if keyword:
         like = f"%{keyword}%"
         rows = fetch_all(
@@ -798,11 +1083,12 @@ def patients():
             SELECT * FROM patients
             WHERE patient_name LIKE %s OR id_card LIKE %s OR phone LIKE %s OR patient_no LIKE %s
             ORDER BY patient_id
+            LIMIT 500
             """,
             (like, like, like, like),
         )
     else:
-        rows = fetch_all("SELECT * FROM patients ORDER BY patient_id")
+        rows = fetch_all("SELECT * FROM patients ORDER BY patient_id LIMIT 500")
     return render_template("patients.html", rows=rows, keyword=keyword)
 
 
@@ -835,7 +1121,6 @@ def registrations():
                         request.form["reg_type"],
                         int(current_user()["user_id"]),
                         request.form["pay_method"],
-                        None,
                     ],
                 )
                 flash("挂号成功，挂号费已收取。", "success")
@@ -1180,22 +1465,28 @@ def prescriptions():
         JOIN users u ON doc.user_id = u.user_id
         JOIN departments dept ON u.department_id = dept.department_id
     """
+    # 列表统一封顶：这些表只增不减，不加 LIMIT 时页面会随时间越来越慢
     if is_doctor:
         # 医生只能看到自己开具的处方
         if status:
             rows = fetch_all(
-                base_sql + " WHERE p.prescription_status = %s AND p.doctor_id = %s ORDER BY p.prescription_id DESC",
+                base_sql + " WHERE p.prescription_status = %s AND p.doctor_id = %s"
+                           " ORDER BY p.prescription_id DESC LIMIT 300",
                 (status, my_doctor_id),
             )
         else:
             rows = fetch_all(
-                base_sql + " WHERE p.doctor_id = %s ORDER BY p.prescription_id DESC", (my_doctor_id,)
+                base_sql + " WHERE p.doctor_id = %s ORDER BY p.prescription_id DESC LIMIT 300",
+                (my_doctor_id,),
             )
     else:
         if status:
-            rows = fetch_all(base_sql + " WHERE p.prescription_status = %s ORDER BY p.prescription_id DESC", (status,))
+            rows = fetch_all(
+                base_sql + " WHERE p.prescription_status = %s ORDER BY p.prescription_id DESC LIMIT 300",
+                (status,),
+            )
         else:
-            rows = fetch_all(base_sql + " ORDER BY p.prescription_id DESC")
+            rows = fetch_all(base_sql + " ORDER BY p.prescription_id DESC LIMIT 300")
 
     # 开方所需的患者（今日已挂号待就诊/就诊中；医生只能看到挂给本人的患者）
     registerable_sql = """
@@ -1337,6 +1628,13 @@ def consultation(registration_id=None):
         my_dept_id = None
 
     if request.method == "POST":
+        # 接诊工作台是「医生本人书写医疗文书」的操作区。
+        # 管理员可以进来看队列与工作区，但**不能代写病历/开处方/开检验** ——
+        # 这与 /medical_records 路由的既有规则保持一致（那里也禁止管理员代写）。
+        # 历史实现允许管理员在本页写任意挂号，等于绕过了病历页的归属校验。
+        if not is_doctor:
+            flash("接诊工作台仅限接诊医生本人操作，管理员可查看但不能代写。", "error")
+            return redirect(url_for("consultation"))
         action = request.form.get("action")
         try:
             if action == "start":
@@ -1722,6 +2020,7 @@ def payments():
         JOIN users u ON doc.user_id = u.user_id
         WHERE p.prescription_status = '待收费'
         ORDER BY p.prescription_id
+        LIMIT 200
         """
     )
     charged = fetch_all(
@@ -1736,6 +2035,7 @@ def payments():
         LEFT JOIN payments pm ON p.prescription_id = pm.prescription_id AND pm.payment_type = '药品费'
         WHERE p.prescription_status IN ('已收费','已退费')
         ORDER BY p.prescription_id DESC
+        LIMIT 200
         """
     )
     lab_waiting = fetch_all(
@@ -1769,9 +2069,9 @@ def payments():
           SUM(CASE WHEN pay_status = '已退费' THEN 1 ELSE 0 END) AS refund_count,
           COALESCE(SUM(CASE WHEN pay_status = '已退费' THEN pay_amount ELSE 0 END), 0) AS refund_amount
         FROM payments
-        WHERE DATE(pay_time) = %s
+        WHERE pay_time >= %s AND pay_time < DATE_ADD(%s, INTERVAL 1 DAY)
         """,
-        (today,),
+        (today, today),
     )
     today_summary["net_amount"] = today_summary["charge_amount"] - today_summary["refund_amount"]
     return render_template(
@@ -1838,11 +2138,12 @@ def medicines():
     if keyword:
         like = f"%{keyword}%"
         rows = fetch_all(
-            "SELECT * FROM medicines WHERE medicine_name LIKE %s OR medicine_code LIKE %s ORDER BY medicine_id",
+            "SELECT * FROM medicines WHERE medicine_name LIKE %s OR medicine_code LIKE %s"
+            " ORDER BY medicine_id LIMIT 500",
             (like, like),
         )
     else:
-        rows = fetch_all("SELECT * FROM medicines ORDER BY medicine_id")
+        rows = fetch_all("SELECT * FROM medicines ORDER BY medicine_id LIMIT 500")
     return render_template("medicines.html", rows=rows, keyword=keyword)
 
 
@@ -1857,8 +2158,15 @@ def reports():
     data = {
         "reg": fetch_all("SELECT * FROM v_today_registrations ORDER BY registration_count DESC"),
         "schedule": fetch_all("SELECT * FROM v_doctor_schedule WHERE work_date = CURDATE() ORDER BY department_name"),
-        "payment": fetch_all("SELECT * FROM v_daily_payment ORDER BY pay_date DESC"),
-        "prescription": fetch_all("SELECT * FROM v_prescription_detail ORDER BY prescription_id DESC"),
+        # 日报只取近 90 天：v_daily_payment 会全表 GROUP BY，不设范围时账单越多越慢
+        "payment": fetch_all(
+            "SELECT * FROM v_daily_payment WHERE pay_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)"
+            " ORDER BY pay_date DESC"
+        ),
+        # 处方明细视图带 GROUP_CONCAT，全量拉取会在处方上万后拖垮页面
+        "prescription": fetch_all(
+            "SELECT * FROM v_prescription_detail ORDER BY prescription_id DESC LIMIT 300"
+        ),
         "workload": fetch_all("SELECT * FROM v_doctor_workload ORDER BY total_amount DESC"),
     }
     return render_template("reports.html", data=data, tab=request.args.get("tab", "reg"))
@@ -1900,6 +2208,19 @@ def codes():
 # 数据导出（CSV）
 # ============================================================
 
+def _csv_cell(value):
+    """CSV 单元格安全化。
+
+    Excel / WPS 会把以 ``=`` ``+`` ``-`` ``@`` ``TAB`` ``CR`` 开头的单元格当公式执行
+    （CSV 注入：患者地址里写 ``=cmd|'/c calc'!A1`` 就能在打开报表的电脑上执行命令）。
+    这里统一加一个前导单引号，让表格软件按文本处理。
+    """
+    text = "" if value is None else str(value)
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
 @app.route("/export/<name>")
 @login_required
 @permission_required("export")
@@ -1926,7 +2247,7 @@ def export_csv(name):
         headers = list(rows[0].keys())
         writer.writerow(headers)
         for row in rows:
-            writer.writerow(["" if row.get(h) is None else row.get(h) for h in headers])
+            writer.writerow([_csv_cell(row.get(h)) for h in headers])
     else:
         writer.writerow(["暂无数据"])
 
@@ -2315,12 +2636,16 @@ def medical_records():
         "SELECT item_id, item_code, item_name, item_category, unit, price "
         "FROM lab_items WHERE status = '启用' ORDER BY item_category, item_id"
     )
-    stats = {
-        "total": fetch_one("SELECT COUNT(*) v FROM medical_records")["v"],
-        "archived": fetch_one("SELECT COUNT(*) v FROM medical_records WHERE record_status = '已归档'")["v"],
-        "draft": fetch_one("SELECT COUNT(*) v FROM medical_records WHERE record_status = '草稿'")["v"],
-        "today": fetch_one("SELECT COUNT(*) v FROM medical_records WHERE visit_date = CURDATE()")["v"],
-    }
+    # 四个统计同表同扫描，合并成一条（原实现扫了 4 遍 medical_records）
+    stats = fetch_one(
+        """
+        SELECT COUNT(*) AS total,
+               COALESCE(SUM(CASE WHEN record_status = '已归档' THEN 1 ELSE 0 END), 0) AS archived,
+               COALESCE(SUM(CASE WHEN record_status = '草稿' THEN 1 ELSE 0 END), 0)   AS draft,
+               COALESCE(SUM(CASE WHEN visit_date = CURDATE() THEN 1 ELSE 0 END), 0)  AS today
+        FROM medical_records
+        """
+    )
     return render_template(
         "medical_records.html",
         pending=pending, rows=rows, editing=editing, keyword=keyword,
@@ -2544,14 +2869,21 @@ def lab_tests():
         return redirect(url_for("lab_tests"))
 
     status = request.args.get("status", "").strip()
-    summary = {
-        "today_total": fetch_one("SELECT COUNT(*) AS v FROM lab_tests WHERE DATE(ordered_at) = CURDATE()")["v"],
-        "doing": fetch_one("SELECT COUNT(*) AS v FROM lab_tests WHERE test_status IN ('待检验', '检验中')")["v"],
-        "done": fetch_one("SELECT COUNT(*) AS v FROM lab_tests WHERE test_status = '已完成'")["v"],
-        "abnormal": fetch_one(
-            "SELECT COUNT(*) AS v FROM lab_test_results WHERE result_flag IN ('偏高', '偏低', '异常')"
-        )["v"],
-    }
+    # 四个统计合并为一条 SQL，避免 4 次往返；
+    # 「今日申请」用时间区间而不是 DATE(ordered_at) = CURDATE()（后者索引失效）。
+    summary = fetch_one(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM lab_tests
+            WHERE ordered_at >= CURDATE()
+              AND ordered_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY))       AS today_total,
+          (SELECT COUNT(*) FROM lab_tests
+            WHERE test_status IN ('待检验', '检验中'))                      AS doing,
+          (SELECT COUNT(*) FROM lab_tests WHERE test_status = '已完成')     AS done,
+          (SELECT COUNT(*) FROM lab_test_results
+            WHERE result_flag IN ('偏高', '偏低', '异常'))                 AS abnormal
+        """
+    )
     patient_summary = fetch_all(
         "SELECT * FROM v_lab_patient_summary ORDER BY test_count DESC, patient_id LIMIT 30"
     )
@@ -2729,25 +3061,62 @@ def lab_results(test_id):
             if test.get("pay_status") != "已收费":
                 flash("该检验单尚未收费，请先到收费窗口缴费后再录入结果。", "error")
                 return redirect(url_for("lab_results", test_id=test_id))
+            if test.get("test_status") in ("已作废", "已完成"):
+                flash("该检验单已%s，结果不能再修改（报告可能已打印给患者）。"
+                      % test.get("test_status"), "error")
+                return redirect(url_for("lab_results", test_id=test_id))
+            if not items:
+                flash("该检验单没有可录入的结果条目。", "error")
+                return redirect(url_for("lab_results", test_id=test_id))
             try:
+                # 原先每一项都单独 CALL sp_record_lab_result，10 项就是 10 次
+                # 存储过程调用 + 10 次 commit。这里改成「一个事务、一批 UPDATE」，
+                # 往返次数从 N 次降到 1 次，且全部结果要么都成功要么都回滚。
+                statements = []
                 for item in items:
-                    result_value = request.form.get(f"result_{item['result_id']}", "").strip()
+                    result_value = request.form.get("result_%s" % item["result_id"], "").strip()
                     # 结果标志不再由人工选择，一律按参考范围自动判定；
                     # 无参考范围（或空值）无法判定时默认「正常」。
                     auto = auto_flag(item["reference_range"], result_value)
                     result_flag = auto if auto is not None else "正常"
-                    result_note = request.form.get(f"note_{item['result_id']}", "").strip()
-                    call_proc(
-                        "sp_record_lab_result",
-                        [
-                            test_id,
-                            item["result_id"],
-                            result_value or None,
-                            result_flag,
-                            result_note or None,
-                            int(user["user_id"]),
-                        ],
-                    )
+                    result_note = request.form.get("note_%s" % item["result_id"], "").strip()
+                    statements.append((
+                        """
+                        UPDATE lab_test_results
+                        SET result_value = %s, result_flag = %s,
+                            result_note = %s, operator_id = %s
+                        WHERE result_id = %s AND test_id = %s
+                        """,
+                        (result_value or None, result_flag, result_note or None,
+                         int(user["user_id"]), item["result_id"], test_id),
+                    ))
+
+                # 状态流转按「本次提交后」的实际数据判断：还有空项 -> 检验中，
+                # 全部有值 -> 已完成（与原存储过程的判定口径一致）
+                still_pending = any(
+                    not request.form.get("result_%s" % item["result_id"], "").strip()
+                    for item in items
+                )
+                if still_pending:
+                    statements.append((
+                        "UPDATE lab_tests SET test_status = '检验中' "
+                        "WHERE test_id = %s AND test_status NOT IN ('已完成', '已作废')",
+                        (test_id,),
+                    ))
+                else:
+                    statements.append((
+                        "UPDATE lab_tests SET test_status = '已完成', completed_at = NOW() "
+                        "WHERE test_id = %s",
+                        (test_id,),
+                    ))
+                statements.append((
+                    "INSERT INTO operation_logs "
+                    "(user_id, business_type, business_id, operation_content) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (int(user["user_id"]), "检验结果", test_id,
+                     "录入检验单 %s 的结果，共 %d 项" % (test.get("test_no"), len(items))),
+                ))
+                execute_atomic(statements)
                 flash("检验结果已保存，状态已自动流转。", "success")
             except mysql.connector.errors.IntegrityError as error:
                 flash(handle_integrity_error(error), "error")
@@ -2830,6 +3199,7 @@ def pharmacy():
         JOIN users u ON doc.user_id = u.user_id
         WHERE p.prescription_status = '已收费'
         ORDER BY p.prescription_id
+        LIMIT 200
         """
     )
     dispensed = fetch_all(
@@ -2842,6 +3212,7 @@ def pharmacy():
         JOIN users u ON doc.user_id = u.user_id
         WHERE p.prescription_status = '已发药'
         ORDER BY p.prescription_id DESC
+        LIMIT 200
         """
     )
     return render_template("pharmacy.html", pending=pending, dispensed=dispensed)
@@ -2855,6 +3226,33 @@ def pharmacy():
 @login_required
 @permission_required("users")
 def users():
+    def _last_admin_guard(target_id, verb):
+        """阻止把系统里最后一个启用的管理员「删除 / 锁定」。
+
+        没有这道保护，一次误操作就会让整套系统再也没人能登录管理
+        （只能改数据库救回来），属于典型的自锁风险。
+        """
+        target = fetch_one(
+            """
+            SELECT r.role_code FROM users u JOIN roles r ON u.role_id = r.role_id
+            WHERE u.user_id = %s
+            """,
+            (target_id,),
+        )
+        if not target or target["role_code"] != "ADMIN":
+            return None
+        row = fetch_one(
+            """
+            SELECT COUNT(*) AS n FROM users u JOIN roles r ON u.role_id = r.role_id
+            WHERE r.role_code = 'ADMIN' AND u.account_status = '启用' AND u.user_id <> %s
+            """,
+            (target_id,),
+        )
+        if not row or int(row["n"]) == 0:
+            return ("不能%s最后一个启用的管理员账号，否则系统将无人可管理。"
+                    "请先新建另一个管理员。" % verb)
+        return None
+
     user = current_user()
     if request.method == "POST":
         action = request.form.get("action")
@@ -2869,6 +3267,10 @@ def users():
                 password = request.form["password"].strip()
                 if not username or not password:
                     flash("用户名与密码不能为空。", "error")
+                    return redirect(url_for("users"))
+                weak = password_problem(password)
+                if weak:
+                    flash(weak, "error")
                     return redirect(url_for("users"))
                 if role["role_code"] == "DOCTOR":
                     dept_id = int(request.form["department_id"])
@@ -2904,24 +3306,44 @@ def users():
                     )
                 flash("新账号注册成功。", "success")
             elif action == "reset_pwd":
+                new_password = request.form.get("new_password", "").strip()
+                weak = password_problem(new_password)
+                if weak:
+                    flash(weak, "error")
+                    return redirect(url_for("users"))
                 execute(
                     "UPDATE users SET password_hash = %s WHERE user_id = %s",
-                    (hash_password(request.form["new_password"]), int(request.form["user_id"])),
+                    (hash_password(new_password), int(request.form["user_id"])),
                 )
                 flash("密码已重置。", "success")
             elif action == "toggle_status":
                 # 注意：account_status 的取值是 ENUM('启用','锁定')，不是「停用」。
                 # 写成「停用」会命中 ENUM 非法值，MySQL 报 1265 Data truncated。
+                target_id = int(request.form["user_id"])
+                current_status = fetch_one(
+                    "SELECT account_status FROM users WHERE user_id = %s", (target_id,)
+                )
+                if current_status and current_status["account_status"] == "启用":
+                    blocked = _last_admin_guard(target_id, "锁定")
+                    if blocked:
+                        flash(blocked, "error")
+                        return redirect(url_for("users"))
                 execute(
                     "UPDATE users SET account_status = IF(account_status = '启用', '锁定', '启用') WHERE user_id = %s",
-                    (int(request.form["user_id"]),),
+                    (target_id,),
                 )
+                # 该账号可能正挂着登录态，撤掉复核缓存让它下一次请求立刻被踢出
+                _session_checked_at.pop(target_id, None)
                 flash("账号状态已更新。", "success")
             elif action == "delete_user":
                 target_id = int(request.form["user_id"])
                 if target_id == int(user["user_id"]):
                     flash("不能删除当前登录账号。", "error")
                 else:
+                    blocked = _last_admin_guard(target_id, "删除")
+                    if blocked:
+                        flash(blocked, "error")
+                        return redirect(url_for("users"))
                     # 三步删除必须整体成败一致。execute() 每调用一次就提交，
                     # 若中途被外键拦下（例如该医生还有挂号记录），前面几步已经落库，
                     # 会留下「医生档案已删、账号还在」的半删脏数据；而下面那条
@@ -3119,6 +3541,69 @@ def _api_err(msg, code=1):
     return jsonify({"code": code, "msg": msg, "data": None})
 
 
+# ---- 小程序接口的通用防护 ----
+# 这组接口没有 session 登录态（C 端用身份证号识别患者），因此必须自己兜住
+# 「谁能调、能调多快、能不能动别人的数据」三件事：
+#   1. 限流：每来源 IP 每分钟 60 次，挡住脚本化枚举 / 刷号；
+#   2. 归属：退号必须同时给出该挂号对应的身份证号；
+#   3. 幂等：同一患者同一天同一医生只生成一条有效挂号。
+_MINI_RATE_WINDOW = 60
+_MINI_RATE_MAX = 60
+_mini_hits = {}
+_mini_lock = threading.Lock()
+
+
+def _mini_rate_limited():
+    key = _client_ip()
+    now = time.time()
+    with _mini_lock:
+        rec = _mini_hits.get(key)
+        if not rec or now - rec["start"] > _MINI_RATE_WINDOW:
+            rec = {"start": now, "n": 0}
+            _mini_hits[key] = rec
+        rec["n"] += 1
+        if len(_mini_hits) > 10000:      # 防止长期运行后无界增长
+            for k in [k for k, v in _mini_hits.items()
+                      if now - v["start"] > _MINI_RATE_WINDOW]:
+                _mini_hits.pop(k, None)
+        return rec["n"] > _MINI_RATE_MAX
+
+
+@app.before_request
+def mini_api_rate_limit():
+    if not request.path.startswith("/api/mini/"):
+        return None
+    if _mini_rate_limited():
+        return jsonify({"code": 429, "msg": "请求过于频繁，请稍后再试", "data": None}), 429
+    return None
+
+
+def _mini_operator_id():
+    """小程序挂号的「经办人」。
+
+    历史实现把 operator_id 硬编码成 3，导致线上挂号/退号的审计记录全落在
+    收费员 cash01 名下，出问题查不到真实来源。现在：
+      * 优先取环境变量 HIS_MINI_OPERATOR_ID；
+      * 否则回退到 cash01（课程演示默认），但必须真实存在（外键要求）。
+    """
+    raw = os.getenv("HIS_MINI_OPERATOR_ID", "").strip()
+    if raw.isdigit():
+        return int(raw)
+    row = fetch_one(
+        "SELECT u.user_id FROM users u WHERE u.username = %s AND u.account_status = '启用'",
+        ("cash01",),
+    )
+    return int(row["user_id"]) if row else None
+
+
+def _mask_phone(phone):
+    """手机号脱敏：138****8000。C 端接口不需要回显完整号码。"""
+    text = (phone or "").strip()
+    if len(text) < 7:
+        return text
+    return text[:3] + "*" * (len(text) - 7) + text[-4:]
+
+
 @app.route("/api/mini/departments", methods=["GET"])
 def api_mini_departments():
     """科室列表：返回有医生的科室（含医生数）。"""
@@ -3232,6 +3717,10 @@ def api_mini_patient():
             "FROM patients WHERE id_card = %s",
             (id_card,),
         )
+        if row and row.get("phone"):
+            # 这个接口无登录态，只按身份证号匹配即返回，必须脱敏，
+            # 否则拿到任意一个身份证号就能读到完整手机号。
+            row["phone"] = _mask_phone(row["phone"])
         return _api_ok(row)
     except mysql.connector.Error as error:
         return _api_err(handle_db_error(error))
@@ -3266,6 +3755,23 @@ def api_mini_register():
         if not schedule:
             return _api_err("排班不存在，请刷新后重试")
 
+        # 幂等：同一患者当天同一医生只允许一条有效挂号。
+        # 没有这道判断时，小程序网络重试 / 用户连点两次就会重复挂号并重复扣费。
+        existing = fetch_one(
+            """
+            SELECT r.reg_no, r.queue_no, r.reg_fee, r.visit_status
+            FROM registrations r
+            JOIN patients p ON r.patient_id = p.patient_id
+            WHERE p.id_card = %s AND r.doctor_id = %s AND r.reg_date = CURDATE()
+              AND r.visit_status <> '已退号'
+            ORDER BY r.registration_id DESC
+            LIMIT 1
+            """,
+            (id_card, schedule["doctor_id"]),
+        )
+        if existing:
+            return _api_ok(existing, "您今日已挂过该医生的号，请勿重复提交")
+
         # 定位或建档患者（建档与后台 /patients 建档逻辑保持一致：直接 INSERT）
         patient_row = fetch_one(
             "SELECT patient_id FROM patients WHERE id_card = %s", (id_card,)
@@ -3283,7 +3789,10 @@ def api_mini_register():
                 (
                     patient_no, name,
                     gender if gender in ("男", "女") else "未知",
-                    birth_date or None, id_card, phone, None, "未知",
+                    # patients.phone 已放开为可空（sql/15）。这里必须传 None 而不是
+                    # 空字符串：phone 上有唯一索引，两个空串会互相冲突（1062），
+                    # 表现为「第二个没填手机号的患者永远建档失败」。
+                    birth_date or None, id_card, phone or None, None, "未知",
                 ),
             )
             patient_row = fetch_one(
@@ -3294,25 +3803,27 @@ def api_mini_register():
             patient_id = patient_row["patient_id"]
 
         # 挂号（复用 sp_register 事务，号源扣减 + 挂号费 + 排队号）
-        # operator_id 固定为收费员 cash01（user_id=3，见 sql/07_seed_data.sql）
+        operator_id = _mini_operator_id()
+        if not operator_id:
+            return _api_err("系统未配置线上挂号经办人（HIS_MINI_OPERATOR_ID），暂时无法挂号")
+        reg_no = make_no("REG")
         call_proc(
             "sp_register",
             [
-                make_no("REG"),
+                reg_no,
                 patient_id,
                 schedule["doctor_id"],
                 int(schedule_id),
                 reg_type,
-                3,
+                operator_id,
                 pay_method,
-                None,
             ],
         )
-        # 回读挂号单号（取该患者最新一条）
+        # 回读本次生成的挂号单（用 reg_no 精确定位；原先按 patient_id 取最新一条，
+        # 并发时会读到别人的单子）
         reg = fetch_one(
-            "SELECT reg_no, queue_no, reg_fee FROM registrations "
-            "WHERE patient_id = %s ORDER BY registration_id DESC LIMIT 1",
-            (patient_id,),
+            "SELECT reg_no, queue_no, reg_fee FROM registrations WHERE reg_no = %s",
+            (reg_no,),
         )
         return _api_ok(reg, "挂号成功")
     except mysql.connector.errors.IntegrityError as error:
@@ -3343,8 +3854,15 @@ def api_mini_my_registrations():
             JOIN doctors doc ON r.doctor_id = doc.doctor_id
             JOIN users u ON doc.user_id = u.user_id
             JOIN departments d ON r.department_id = d.department_id
-            LEFT JOIN doctor_schedules s ON r.reg_date = s.work_date
-               AND r.doctor_id = s.doctor_id
+            -- 取「当天那条排班」而不是按 (work_date, doctor_id) 直接 JOIN：
+            -- 医生同一天可能既有上午班又有下午班，直接 JOIN 会让同一条挂号
+            -- 在「我的挂号」里重复出现两行。
+            LEFT JOIN doctor_schedules s ON s.schedule_id = (
+                SELECT s2.schedule_id FROM doctor_schedules s2
+                WHERE s2.doctor_id = r.doctor_id AND s2.work_date = r.reg_date
+                ORDER BY FIELD(s2.shift_type, '上午', '下午', '全天'), s2.schedule_id
+                LIMIT 1
+            )
             WHERE p.id_card = %s
             ORDER BY r.registration_id DESC
             """,
@@ -3363,12 +3881,32 @@ def api_mini_cancel():
     try:
         registration_id = data.get("registration_id")
         reason = (data.get("reason") or "").strip() or "患者线上退号"
+        id_card = (data.get("id_card") or "").strip()
         if not registration_id:
             return _api_err("缺少 registration_id")
-        # operator_id 固定为收费员 cash01（user_id=3），与线上挂号保持一致
+        # 退号是「动别人数据」的操作，必须证明这单挂号就是这个身份证号挂的。
+        # 早前只凭 registration_id 就能退（任意人遍历 id 即可把别人的号退掉）。
+        if not id_card:
+            return _api_err("缺少 id_card，无法校验退号归属")
+        owner = fetch_one(
+            """
+            SELECT r.visit_status, p.id_card
+            FROM registrations r
+            JOIN patients p ON r.patient_id = p.patient_id
+            WHERE r.registration_id = %s
+            """,
+            (int(registration_id),),
+        )
+        if not owner:
+            return _api_err("挂号记录不存在")
+        if owner["id_card"] != id_card:
+            return _api_err("该挂号不属于当前身份证号，无法退号")
+        operator_id = _mini_operator_id()
+        if not operator_id:
+            return _api_err("系统未配置线上挂号经办人（HIS_MINI_OPERATOR_ID）")
         call_proc(
             "sp_cancel_registration",
-            [int(registration_id), 3, reason],
+            [int(registration_id), operator_id, reason],
         )
         return _api_ok(None, "退号成功，号源已恢复，挂号费已退回")
     except mysql.connector.errors.IntegrityError as error:
@@ -3384,8 +3922,19 @@ if __name__ == "__main__":
     # 云端部署时由平台接管启动，这两个环境变量用不上
     # host 默认 0.0.0.0：既允许本机 127.0.0.1 访问，也允许手机真机（同一 Wi-Fi）访问；
     # 如需仅本机访问，可设环境变量 HIS_WEB_HOST=127.0.0.1。
+    #
+    # ⚠️ debug 必须默认关闭：Werkzeug 调试器带交互式控制台，等于把代码执行权限
+    #    交给任何能访问该端口的人。演示期间若用内网穿透映射到公网，开着 debug
+    #    就是一条现成的入侵通道。需要断点调试时显式设 HIS_WEB_DEBUG=1，
+    #    且只在 127.0.0.1 上监听。
+    _debug = os.getenv("HIS_WEB_DEBUG", "0") == "1"
+    _host = os.getenv("HIS_WEB_HOST", "0.0.0.0")
+    if _debug and _host not in ("127.0.0.1", "localhost"):
+        _logging.getLogger(__name__).warning(
+            "HIS 已开启调试模式且监听 %s：调试器控制台可执行任意代码，"
+            "请勿用于公网或共享网络。", _host)
     app.run(
-        host=os.getenv("HIS_WEB_HOST", "0.0.0.0"),
+        host=_host,
         port=int(os.getenv("HIS_WEB_PORT", "5000")),
-        debug=os.getenv("HIS_WEB_DEBUG", "1") == "1",
+        debug=_debug,
     )

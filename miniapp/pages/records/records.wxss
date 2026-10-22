@@ -1,0 +1,81 @@
+/* pages/records/records.wxss —— 我的预约 */
+.page {
+  min-height: 100vh;
+  background: #f5f6f8;
+  padding-bottom: 40rpx;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  padding: 22rpx 28rpx;
+  border-bottom: 1rpx solid #eef0f3;
+}
+
+.filter-item {
+  font-size: 28rpx;
+  color: #2b2f36;
+  margin-right: 48rpx;
+}
+
+.filter-item:last-child {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.search-bar .input {
+  flex: 1;
+  background: #f5f6f8;
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+  font-size: 28rpx;
+}
+
+.search-btn {
+  background: #2f6fed;
+  color: #fff;
+  border-radius: 12rpx;
+  padding: 16rpx 36rpx;
+  font-size: 28rpx;
+}
+
+.reg-card {
+  padding: 24rpx 28rpx;
+  display: flex;
+  flex-direction: column;
+}
+
+.queue {
+  color: #2f6fed;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.fee {
+  color: #f5222d;
+  font-size: 26rpx;
+  margin-top: 4rpx;
+}
+
+.reg-no {
+  font-size: 22rpx;
+  color: #b0b4bd;
+  margin-top: 8rpx;
+}
+
+.cancel-btn {
+  margin-top: 16rpx;
+  align-self: flex-end;
+  border: 2rpx solid #e64340;
+  color: #e64340;
+  font-size: 26rpx;
+  border-radius: 10rpx;
+  padding: 8rpx 32rpx;
+}

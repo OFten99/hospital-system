@@ -1,0 +1,41 @@
+/* pages/register/register.wxss */
+.summary-sub {
+  margin-top: 8rpx;
+}
+
+.form-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f1f3;
+}
+
+.form-item:last-child { border-bottom: none; }
+
+.label {
+  width: 160rpx;
+  color: #666;
+  font-size: 28rpx;
+}
+
+.input {
+  flex: 1;
+  font-size: 28rpx;
+}
+
+.radio-group {
+  flex: 1;
+  display: flex;
+  gap: 40rpx;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  font-size: 28rpx;
+}
+
+.picker-value {
+  color: #333;
+  font-size: 28rpx;
+}

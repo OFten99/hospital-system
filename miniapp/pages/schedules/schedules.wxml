@@ -1,0 +1,41 @@
+<view class="container">
+  <view class="card">
+    <view class="card-title">{{doctorName}} <text class="tag tag-blue">{{title}}</text></view>
+    <view class="row-sub">请选择出诊日期与班次（未来 7 天）</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading">正在加载号源…</view>
+
+  <view wx:else>
+    <view wx:if="{{schedules.length === 0}}" class="empty">
+      该医生未来 7 天暂无排班
+    </view>
+    <view wx:else>
+      <view
+        class="card schedule-card {{selectedIndex === index ? 'selected' : ''}} {{item.remain <= 0 ? 'full' : ''}}"
+        wx:for="{{schedules}}"
+        wx:key="schedule_id"
+        data-index="{{index}}"
+        bindtap="onSelect"
+      >
+        <view class="row">
+          <view class="row-left">
+            <view class="row-title">{{item.work_date}}</view>
+            <view class="row-sub">
+              <text class="tag tag-gray">{{item.shift_type}}</text>
+              <text wx:if="{{item.clinic_room}}">诊室 {{item.clinic_room}}</text>
+            </view>
+          </view>
+          <view class="row-right">
+            <view wx:if="{{item.remain > 0}}" class="remain">余号 {{item.remain}}</view>
+            <view wx:else class="remain full-text">已约满</view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="btn-primary {{selectedIndex < 0 ? 'disabled' : ''}}" bindtap="onNext">
+    下一步：填写就诊人
+  </view>
+</view>

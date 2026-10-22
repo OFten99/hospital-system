@@ -1,0 +1,41 @@
+<view class="page">
+  <!-- 筛选条：就诊人 + 时间范围 -->
+  <view class="filter-bar">
+    <view class="filter-item" bindtap="onPickPatient">就诊人：{{patientName || '未选择'}} ▾</view>
+    <view class="filter-item" bindtap="onPickRange">{{rangeLabel}} ▾</view>
+  </view>
+
+  <!-- 未选择就诊人：输入身份证建档查询 -->
+  <view wx:if="{{!patientId}}" class="card">
+    <view class="card-title">查询我的预约</view>
+    <view class="search-bar">
+      <input class="input" placeholder="请输入身份证号" value="{{idCard}}" bindinput="onInput" />
+      <view class="search-btn" bindtap="search">查询</view>
+    </view>
+  </view>
+
+  <view wx:elif="{{loading}}" class="loading">正在查询…</view>
+
+  <view wx:else>
+    <view wx:if="{{filtered.length === 0}}" class="empty">暂无预约记录</view>
+    <view wx:else>
+      <view class="card reg-card" wx:for="{{filtered}}" wx:key="reg_no">
+        <view class="row">
+          <view class="row-left">
+            <view class="row-title">{{item.department_name}} · {{item.doctor_name}}</view>
+            <view class="row-sub">
+              <text>{{item.work_date}} {{item.shift_type}}</text>
+              <text class="tag {{statusClass(item.visit_status)}}">{{item.visit_status}}</text>
+            </view>
+          </view>
+          <view class="row-right">
+            <view class="queue">第 {{item.queue_no}} 号</view>
+            <view class="fee">¥{{item.reg_fee}}</view>
+          </view>
+        </view>
+        <view class="reg-no">挂号单号：{{item.reg_no}}</view>
+        <view class="cancel-btn" wx:if="{{item.visit_status === '待就诊'}}" data-id="{{item.registration_id}}" bindtap="onCancel">退号</view>
+      </view>
+    </view>
+  </view>
+</view>

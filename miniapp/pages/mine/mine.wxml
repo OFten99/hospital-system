@@ -1,0 +1,27 @@
+<view class="page">
+  <!-- 蓝色渐变头卡 -->
+  <view class="header">
+    <view class="header-row">
+      <view class="avatar">👤</view>
+      <view class="user-info">
+        <view class="user-name">{{userName}}</view>
+        <view class="user-sub">欢迎来到线上挂号</view>
+      </view>
+      <view class="setting" bindtap="onSetting">账号设置 ›</view>
+    </view>
+  </view>
+
+  <!-- 菜单列表 -->
+  <view class="menu card">
+    <view class="menu-item" bindtap="goRecords">
+      <view class="mi-icon" style="background:#e8f1ff;color:#2f6fed;">📅</view>
+      <view class="mi-title">我的预约</view>
+      <view class="mi-arrow">›</view>
+    </view>
+    <view class="menu-item" bindtap="goRecords">
+      <view class="mi-icon" style="background:#eef0ff;color:#6b6ef2;">🕓</view>
+      <view class="mi-title">候诊记录</view>
+      <view class="mi-arrow">›</view>
+    </view>
+  </view>
+</view>

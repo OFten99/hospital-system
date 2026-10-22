@@ -24,7 +24,7 @@
       可以直接执行，不需要 DataGrip。
     - 云端 MySQL 常见坑：托管实例默认开启 binlog，普通账号建触发器会报
       ERROR 1419（You do not have the SUPER privilege）。脚本会识别这个错误并
-      给出解决办法，详见 docs/部署到公网_EdgeOne.md。
+      给出解决办法（log_bin_trust_function_creators 需设为 1）。
 """
 
 import argparse

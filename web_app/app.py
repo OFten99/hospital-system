@@ -21,7 +21,7 @@ from urllib.parse import quote
 
 import mysql.connector
 import mysql.connector.errors
-from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import (call_proc, call_proc_scalar, close_request_connections, execute,
@@ -29,22 +29,18 @@ from db import (call_proc, call_proc_scalar, close_request_connections, execute,
 
 
 # 模板与静态资源目录按「本文件所在目录」定位，
-# 这样本地运行和云端（云函数）运行解析结果完全一致。
-# 云端（EdgeOne 云函数）打包时文件挂载位置可能与源码目录不同，
-# 因此按多个候选路径依次探测，哪个目录里有模板就优先用哪个。
+# 按多个候选路径依次探测，哪个目录里有模板就优先用哪个。
 APP_DIR = Path(__file__).resolve().parent
 _CWD = Path(os.getcwd())
 
 _TEMPLATE_CANDIDATES = [
     APP_DIR / "templates",            # 本地 / 常规部署
-    _CWD / "templates",               # 云函数工作目录
-    _CWD / "cloud-functions" / "templates",
+    _CWD / "templates",               # 工作目录
     APP_DIR.parent / "templates",
 ]
 _STATIC_CANDIDATES = [
     APP_DIR / "static",
     _CWD / "static",
-    _CWD / "cloud-functions" / "static",
     APP_DIR.parent / "static",
 ]
 
@@ -500,7 +496,7 @@ def make_no(prefix):
     早期实现是「前缀 + 秒级时间戳」，同一秒内连续生成两单就会撞上
     reg_no / prescription_no / payment_no / test_no 的唯一索引（MySQL 1062），
     表现为第二次操作报「挂号单号已存在」/「处方号已存在」。
-    人工逐单操作时不易察觉，但收费窗口连续挂号、或脚本化批量验收时必然踩到。
+    人工逐单操作时不易察觉，但收费窗口连续挂号、或脚本化批量操作时必然踩到。
     这里加入微秒与自增序号，保证同一进程内绝不重复；
     单号总长 ≤ 29 字符，仍小于各单号列宽（VARCHAR(30) / VARCHAR(40)）。
     """
@@ -752,8 +748,8 @@ def patients():
                 execute(
                     """
                     INSERT INTO patients (patient_no, patient_name, gender, birth_date,
-                                          id_card, phone, address, blood_type, medical_history)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                          id_card, phone, address, blood_type)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         request.form["patient_no"].strip(),
@@ -764,7 +760,6 @@ def patients():
                         request.form["phone"].strip(),
                         request.form.get("address") or None,
                         request.form["blood_type"],
-                        request.form.get("medical_history") or None,
                     ),
                 )
                 flash("患者档案创建成功。", "success")
@@ -3082,8 +3077,7 @@ def departments():
 # ============================================================
 # 可选的 URL 前缀支持（默认关闭，本地开发和常规部署都不需要）
 #
-# 用途：如果云平台把函数挂在子路径下（例如函数目录为
-# cloud-functions/his/[[default]].py，对外路径就变成 /his/...），
+# 用途：如果云平台把函数挂在子路径下（例如对外路径是 /his/...），
 # 平台剥离前缀后才交给 Flask，这时 url_for / 页面跳转生成的链接会
 # 丢掉前缀。设置环境变量 HIS_URL_PREFIX=/his 即可自动补上。
 # ============================================================
@@ -3107,11 +3101,291 @@ if URL_PREFIX:
     app.wsgi_app = _PrefixMiddleware(app.wsgi_app, URL_PREFIX)
 
 
+# ============================================================
+# 微信小程序线上挂号 API（JSON，无需登录）
+#
+# 说明：本组接口面向「小程序线上预约/挂号」课程演示，是 C 端只读查询 +
+# 挂号提交。与后台页面路由（session 鉴权）不同，小程序通过 openid / 手机号
+# 识别患者，这里为课程演示简化：用身份证号 + 姓名定位患者，已建档则复用，
+# 未建档则自动建档。挂号写操作仍复用 sp_register 存储过程，保证号源扣减的
+# 事务一致性。生产环境应在此之上加 openid 校验与接口签名。
+# ============================================================
+
+def _api_ok(data=None, msg="ok"):
+    return jsonify({"code": 0, "msg": msg, "data": data})
+
+
+def _api_err(msg, code=1):
+    return jsonify({"code": code, "msg": msg, "data": None})
+
+
+@app.route("/api/mini/departments", methods=["GET"])
+def api_mini_departments():
+    """科室列表：返回有医生的科室（含医生数）。"""
+    try:
+        rows = fetch_all(
+            """
+            SELECT d.department_id, d.department_code, d.department_name,
+                   (SELECT COUNT(*) FROM doctors doc
+                      JOIN users u ON doc.user_id = u.user_id
+                     WHERE u.department_id = d.department_id) AS doctor_count
+            FROM departments d
+            HAVING doctor_count > 0
+            ORDER BY d.department_id
+            """
+        )
+        return _api_ok(rows)
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+
+
+@app.route("/api/mini/doctors", methods=["GET"])
+def api_mini_doctors():
+    """某科室医生列表。参数 department_id。"""
+    try:
+        dept_id = request.args.get("department_id", type=int)
+        if not dept_id:
+            return _api_err("缺少 department_id 参数")
+        rows = fetch_all(
+            """
+            SELECT doc.doctor_id, doc.doctor_no, u.user_name AS doctor_name,
+                   doc.title, doc.specialty, doc.consultation_fee,
+                   doc.max_daily_registrations, d.department_name
+            FROM doctors doc
+            JOIN users u ON doc.user_id = u.user_id
+            LEFT JOIN departments d ON u.department_id = d.department_id
+            WHERE u.department_id = %s
+            ORDER BY doc.doctor_id
+            """,
+            (dept_id,),
+        )
+        return _api_ok(rows)
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+
+
+@app.route("/api/mini/search", methods=["GET"])
+def api_mini_search():
+    """按医生名/科室名模糊搜索医生。参数 keyword。"""
+    try:
+        keyword = request.args.get("keyword", "").strip()
+        if not keyword:
+            return _api_ok([])
+        like = f"%{keyword}%"
+        rows = fetch_all(
+            """
+            SELECT doc.doctor_id, u.user_name AS doctor_name,
+                   doc.title, doc.specialty, doc.consultation_fee,
+                   d.department_id, d.department_name
+            FROM doctors doc
+            JOIN users u ON doc.user_id = u.user_id
+            LEFT JOIN departments d ON u.department_id = d.department_id
+            WHERE u.user_name LIKE %s OR d.department_name LIKE %s
+            ORDER BY doc.doctor_id
+            LIMIT 20
+            """,
+            (like, like),
+        )
+        return _api_ok(rows)
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+
+
+@app.route("/api/mini/schedules", methods=["GET"])
+def api_mini_schedules():
+    """某医生未来 N 天排班与剩余号源。参数 doctor_id、days（默认 7）。"""
+    try:
+        doctor_id = request.args.get("doctor_id", type=int)
+        days = request.args.get("days", type=int) or 7
+        if not doctor_id:
+            return _api_err("缺少 doctor_id 参数")
+        rows = fetch_all(
+            """
+            SELECT s.schedule_id,
+                   DATE_FORMAT(s.work_date, '%Y-%m-%d') AS work_date,
+                   s.shift_type, s.clinic_room,
+                   s.max_registrations, s.registered_count,
+                   GREATEST(s.max_registrations - s.registered_count, 0) AS remain
+            FROM doctor_schedules s
+            WHERE s.doctor_id = %s
+              AND s.work_date >= CURDATE()
+              AND s.work_date < DATE_ADD(CURDATE(), INTERVAL %s DAY)
+              AND s.schedule_status = '正常'
+            ORDER BY s.work_date, s.shift_type
+            """,
+            (doctor_id, days),
+        )
+        return _api_ok(rows)
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+
+
+@app.route("/api/mini/patient", methods=["GET"])
+def api_mini_patient():
+    """按身份证号查询患者。参数 id_card。"""
+    try:
+        id_card = request.args.get("id_card", "").strip()
+        if not id_card:
+            return _api_err("缺少 id_card 参数")
+        row = fetch_one(
+            "SELECT patient_id, patient_no, patient_name, gender, birth_date, phone "
+            "FROM patients WHERE id_card = %s",
+            (id_card,),
+        )
+        return _api_ok(row)
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+
+
+@app.route("/api/mini/register", methods=["POST"])
+def api_mini_register():
+    """线上挂号。请求体：{schedule_id, reg_type, pay_method, patient:{name, gender,
+    birth_date, id_card, phone}}。已建档患者按 id_card 复用，否则自动建档后挂号。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        schedule_id = data.get("schedule_id")
+        reg_type = data.get("reg_type") or "普通号"
+        pay_method = data.get("pay_method") or "微信"
+        patient = data.get("patient") or {}
+        id_card = (patient.get("id_card") or "").strip()
+        name = (patient.get("name") or "").strip()
+        gender = patient.get("gender") or "未知"
+        birth_date = patient.get("birth_date") or None
+        phone = (patient.get("phone") or "").strip()
+
+        if not schedule_id:
+            return _api_err("缺少 schedule_id")
+        if not id_card or not name:
+            return _api_err("患者姓名与身份证号不能为空")
+
+        # 定位排班与医生
+        schedule = fetch_one(
+            "SELECT doctor_id FROM doctor_schedules WHERE schedule_id = %s",
+            (schedule_id,),
+        )
+        if not schedule:
+            return _api_err("排班不存在，请刷新后重试")
+
+        # 定位或建档患者（建档与后台 /patients 建档逻辑保持一致：直接 INSERT）
+        patient_row = fetch_one(
+            "SELECT patient_id FROM patients WHERE id_card = %s", (id_card,)
+        )
+        if patient_row:
+            patient_id = patient_row["patient_id"]
+        else:
+            patient_no = make_no("P")
+            execute(
+                """
+                INSERT INTO patients (patient_no, patient_name, gender, birth_date,
+                                      id_card, phone, address, blood_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    patient_no, name,
+                    gender if gender in ("男", "女") else "未知",
+                    birth_date or None, id_card, phone, None, "未知",
+                ),
+            )
+            patient_row = fetch_one(
+                "SELECT patient_id FROM patients WHERE id_card = %s", (id_card,)
+            )
+            if not patient_row:
+                return _api_err("患者建档失败")
+            patient_id = patient_row["patient_id"]
+
+        # 挂号（复用 sp_register 事务，号源扣减 + 挂号费 + 排队号）
+        # operator_id 固定为收费员 cash01（user_id=3，见 sql/07_seed_data.sql）
+        call_proc(
+            "sp_register",
+            [
+                make_no("REG"),
+                patient_id,
+                schedule["doctor_id"],
+                int(schedule_id),
+                reg_type,
+                3,
+                pay_method,
+                None,
+            ],
+        )
+        # 回读挂号单号（取该患者最新一条）
+        reg = fetch_one(
+            "SELECT reg_no, queue_no, reg_fee FROM registrations "
+            "WHERE patient_id = %s ORDER BY registration_id DESC LIMIT 1",
+            (patient_id,),
+        )
+        return _api_ok(reg, "挂号成功")
+    except mysql.connector.errors.IntegrityError as error:
+        return _api_err(handle_integrity_error(error))
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+    except (KeyError, TypeError, ValueError) as error:
+        return _api_err(handle_param_error(error))
+
+
+@app.route("/api/mini/my_registrations", methods=["GET"])
+def api_mini_my_registrations():
+    """某患者的挂号记录。参数 id_card。"""
+    try:
+        id_card = request.args.get("id_card", "").strip()
+        if not id_card:
+            return _api_err("缺少 id_card 参数")
+        rows = fetch_all(
+            """
+            SELECT r.registration_id, r.reg_no,
+                   DATE_FORMAT(r.reg_date, '%Y-%m-%d') AS reg_date,
+                   r.reg_type, r.reg_fee, r.queue_no, r.visit_status,
+                   d.department_name, u.user_name AS doctor_name,
+                   DATE_FORMAT(s.work_date, '%Y-%m-%d') AS work_date,
+                   s.shift_type
+            FROM registrations r
+            JOIN patients p ON r.patient_id = p.patient_id
+            JOIN doctors doc ON r.doctor_id = doc.doctor_id
+            JOIN users u ON doc.user_id = u.user_id
+            JOIN departments d ON r.department_id = d.department_id
+            LEFT JOIN doctor_schedules s ON r.reg_date = s.work_date
+               AND r.doctor_id = s.doctor_id
+            WHERE p.id_card = %s
+            ORDER BY r.registration_id DESC
+            """,
+            (id_card,),
+        )
+        return _api_ok(rows)
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+
+
+@app.route("/api/mini/cancel", methods=["POST"])
+def api_mini_cancel():
+    """线上退号。请求体：{registration_id, reason}。仅「待就诊」状态可退。
+    复用 sp_cancel_registration 事务：置已退号 + 恢复号源 + 退挂号费 + 记操作日志。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        registration_id = data.get("registration_id")
+        reason = (data.get("reason") or "").strip() or "患者线上退号"
+        if not registration_id:
+            return _api_err("缺少 registration_id")
+        # operator_id 固定为收费员 cash01（user_id=3），与线上挂号保持一致
+        call_proc(
+            "sp_cancel_registration",
+            [int(registration_id), 3, reason],
+        )
+        return _api_ok(None, "退号成功，号源已恢复，挂号费已退回")
+    except mysql.connector.errors.IntegrityError as error:
+        return _api_err(handle_integrity_error(error))
+    except mysql.connector.Error as error:
+        return _api_err(handle_db_error(error))
+    except (KeyError, TypeError, ValueError) as error:
+        return _api_err(handle_param_error(error))
+
+
 if __name__ == "__main__":
     # 本地开发：python web_app/app.py
     # 云端部署时由平台接管启动，这两个环境变量用不上
+    # host 默认 0.0.0.0：既允许本机 127.0.0.1 访问，也允许手机真机（同一 Wi-Fi）访问；
+    # 如需仅本机访问，可设环境变量 HIS_WEB_HOST=127.0.0.1。
     app.run(
-        host=os.getenv("HIS_WEB_HOST", "127.0.0.1"),
+        host=os.getenv("HIS_WEB_HOST", "0.0.0.0"),
         port=int(os.getenv("HIS_WEB_PORT", "5000")),
         debug=os.getenv("HIS_WEB_DEBUG", "1") == "1",
     )

@@ -34,6 +34,12 @@ _github_upload/
 .workbuddy/
 memory/
 
+# 内网穿透工具（cpolar 安装包等，不上传）
+.cpolar/
+
+# 微信开发者工具本地私有配置（含个人本地设置，不上传）
+miniapp/project.private.config.json
+
 # 课程报告（含学生姓名、学号等个人信息，不上传公开仓库）
 课程报告/
 

@@ -1,0 +1,23 @@
+/* pages/schedules/schedules.wxss */
+.schedule-card {
+  border: 2rpx solid transparent;
+}
+
+.schedule-card.selected {
+  border-color: #2f6fed;
+  background: #f0f6ff;
+}
+
+.schedule-card.full {
+  opacity: 0.5;
+}
+
+.remain {
+  color: #18a058;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.full-text {
+  color: #b0b4bd;
+}

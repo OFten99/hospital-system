@@ -1,0 +1,62 @@
+<view class="container">
+  <!-- 挂号信息摘要 -->
+  <view class="card summary">
+    <view class="row-title">{{doctorName}} <text class="tag tag-blue">{{title}}</text></view>
+    <view class="row-sub summary-sub">
+      <text>{{workDate}} {{shiftType}}</text>
+    </view>
+  </view>
+
+  <!-- 就诊人信息 -->
+  <view class="card">
+    <view class="card-title">就诊人信息</view>
+    <view class="form-item">
+      <text class="label">姓名</text>
+      <input class="input" placeholder="请输入姓名" data-field="name" value="{{name}}" bindinput="onInput" />
+    </view>
+    <view class="form-item">
+      <text class="label">性别</text>
+      <radio-group class="radio-group" bindchange="onGenderChange">
+        <label class="radio"><radio value="男" checked="{{gender === '男'}}" />男</label>
+        <label class="radio"><radio value="女" checked="{{gender === '女'}}" />女</label>
+      </radio-group>
+    </view>
+    <view class="form-item">
+      <text class="label">出生日期</text>
+      <picker mode="date" value="{{birthDate}}" bindchange="onBirthDateChange">
+        <view class="picker-value">{{birthDate || '请选择出生日期'}}</view>
+      </picker>
+    </view>
+    <view class="form-item">
+      <text class="label">身份证号</text>
+      <input class="input" placeholder="请输入身份证号" data-field="idCard" value="{{idCard}}" bindinput="onInput" />
+    </view>
+    <view class="form-item">
+      <text class="label">联系电话</text>
+      <input class="input" type="number" placeholder="请输入联系电话" data-field="phone" value="{{phone}}" bindinput="onInput" />
+    </view>
+  </view>
+
+  <!-- 号别与支付方式 -->
+  <view class="card">
+    <view class="card-title">号别与支付方式</view>
+    <view class="form-item">
+      <text class="label">号别</text>
+      <radio-group class="radio-group" bindchange="onRegTypeChange">
+        <label class="radio"><radio value="普通号" checked="{{regType === '普通号'}}" />普通号</label>
+        <label class="radio"><radio value="专家号" checked="{{regType === '专家号'}}" />专家号</label>
+      </radio-group>
+    </view>
+    <view class="form-item">
+      <text class="label">支付方式</text>
+      <radio-group class="radio-group" bindchange="onPayMethodChange">
+        <label class="radio"><radio value="微信" checked="{{payMethod === '微信'}}" />微信</label>
+        <label class="radio"><radio value="支付宝" checked="{{payMethod === '支付宝'}}" />支付宝</label>
+      </radio-group>
+    </view>
+  </view>
+
+  <view class="btn-primary {{submitting ? 'disabled' : ''}}" bindtap="onSubmit">
+    {{submitting ? '提交中…' : '确认挂号'}}
+  </view>
+</view>

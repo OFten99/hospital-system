@@ -1,0 +1,13 @@
+/* pages/doctors/doctors.wxss */
+.doctor-card:active { background: #f7f9fd; }
+
+.fee {
+  color: #f5222d;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.fee-sub {
+  font-size: 22rpx;
+  color: #8a8f99;
+}

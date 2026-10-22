@@ -1,0 +1,32 @@
+<view class="container">
+  <view wx:if="{{loading}}" class="loading">正在加载医生列表…</view>
+
+  <view wx:else>
+    <view wx:if="{{doctors.length === 0}}" class="empty">该科室暂无医生排班</view>
+    <view wx:else>
+      <view
+        class="card doctor-card"
+        wx:for="{{doctors}}"
+        wx:key="doctor_id"
+        data-id="{{item.doctor_id}}"
+        data-name="{{item.doctor_name}}"
+        data-title="{{item.title}}"
+        bindtap="onTapDoctor"
+      >
+        <view class="row">
+          <view class="row-left">
+            <view class="row-title">{{item.doctor_name}}</view>
+            <view class="row-sub">
+              <text class="tag tag-blue">{{item.title}}</text>
+              <text class="tag tag-green" wx:if="{{item.specialty}}">{{item.specialty}}</text>
+            </view>
+          </view>
+          <view class="row-right">
+            <view class="fee">¥{{item.consultation_fee}}</view>
+            <view class="fee-sub">挂号费</view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

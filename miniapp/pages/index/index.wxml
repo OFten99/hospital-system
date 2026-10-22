@@ -1,0 +1,101 @@
+<view class="page">
+  <!-- 搜索框 + 我的预约 -->
+  <view class="topbar">
+    <view class="search-box">
+      <text class="search-icon">🔍</text>
+      <input class="search-input" placeholder="请输入医生名、科室名"
+             value="{{keyword}}" bindinput="onKeywordInput"
+             bindconfirm="onSearch" confirm-type="search" />
+      <text wx:if="{{keyword}}" class="search-clear" bindtap="onClearSearch">✕</text>
+    </view>
+    <view class="mine-link" bindtap="goMine">我的预约</view>
+  </view>
+
+  <!-- 挂号时间提示条 -->
+  <view class="reg-time-bar" wx:if="{{!searchResults}}">
+    <text class="reg-time-icon">🕐</text>
+    <text class="reg-time-text">当天挂号时间：7:30 - 17:00</text>
+  </view>
+
+  <!-- 医院头卡 -->
+  <view class="hospital-card" wx:if="{{!searchResults}}">
+    <view class="hospital-logo">医</view>
+    <view class="hospital-info">
+      <view class="hospital-name-row">
+        <text class="hospital-name">{{hospitalName}}</text>
+        <text class="hospital-level">{{hospitalLevel}}</text>
+      </view>
+      <view class="hospital-addr">{{hospitalAddr}}</view>
+    </view>
+    <view class="notice-link" bindtap="onShowNotice">就诊须知</view>
+  </view>
+
+  <!-- 就医须知弹窗 -->
+  <view wx:if="{{showNotice}}" class="mask" catchtap="onNoticeOk">
+    <view class="notice-modal" catchtap="">
+      <view class="notice-title">就医须知</view>
+      <scroll-view scroll-y class="notice-body">
+        <text>{{noticeText}}</text>
+      </scroll-view>
+      <view class="notice-btn" bindtap="onNoticeOk">我知道了</view>
+    </view>
+  </view>
+
+  <!-- 加载/错误 -->
+  <view wx:if="{{loading}}" class="loading">正在加载…</view>
+  <view wx:elif="{{error}}" class="error-box">{{error}}</view>
+
+  <!-- 搜索结果 -->
+  <view wx:elif="{{searchResults !== null}}" class="search-panel">
+    <view wx:if="{{searchResults.length === 0}}" class="empty">未找到匹配的医生或科室</view>
+    <view wx:else class="doc-list">
+      <view class="doc-item" wx:for="{{searchResults}}" wx:key="doctor_id"
+            data-id="{{item.doctor_id}}" data-name="{{item.doctor_name}}"
+            data-title="{{item.title}}" bindtap="goDoctor">
+        <view class="doc-avatar">{{item.doctor_name[0]}}</view>
+        <view class="doc-main">
+          <view class="doc-name-row">
+            <text class="doc-name">{{item.doctor_name}}</text>
+            <text class="tag tag-blue">{{item.title}}</text>
+          </view>
+          <view class="doc-sub">{{item.department_name || '未指定科室'}}
+            <text wx:if="{{item.specialty}}"> · {{item.specialty}}</text>
+          </view>
+        </view>
+        <view class="doc-fee">¥{{item.consultation_fee}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 双栏：左科室 / 右医生 -->
+  <view wx:else class="dual">
+    <scroll-view scroll-y class="left-col">
+      <view wx:for="{{departments}}" wx:key="department_id"
+            class="left-item {{activeDeptId === item.department_id ? 'active' : ''}}"
+            data-id="{{item.department_id}}" data-name="{{item.department_name}}"
+            bindtap="onTapDepartment">
+        {{item.department_name}}
+      </view>
+    </scroll-view>
+    <scroll-view scroll-y class="right-col">
+      <view class="right-title">{{activeDeptName}} · 可预约医生</view>
+      <view wx:if="{{doctorsLoading}}" class="loading">加载中…</view>
+      <view wx:elif="{{doctors.length === 0}}" class="empty">该科室暂无可预约医生</view>
+      <view wx:else class="doc-list">
+        <view class="doc-item" wx:for="{{doctors}}" wx:key="doctor_id"
+              data-id="{{item.doctor_id}}" data-name="{{item.doctor_name}}"
+              data-title="{{item.title}}" bindtap="goDoctor">
+          <view class="doc-avatar">{{item.doctor_name[0]}}</view>
+          <view class="doc-main">
+            <view class="doc-name-row">
+              <text class="doc-name">{{item.doctor_name}}</text>
+              <text class="tag tag-blue">{{item.title}}</text>
+            </view>
+            <view class="doc-sub" wx:if="{{item.specialty}}">{{item.specialty}}</view>
+          </view>
+          <view class="doc-fee">¥{{item.consultation_fee}}</view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+</view>

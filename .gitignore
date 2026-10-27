@@ -2,6 +2,11 @@
 *.log
 *.pyc
 __pycache__/
+
+# 仓库根目录下的一次性临时脚本 / 输出（下划线开头），只留本地用
+/_*.py
+/_*.txt
+/_*.html
 _diag*
 _test_probe.bat
 _battest.py

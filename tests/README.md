@@ -46,11 +46,12 @@ python init_database.py
 
 ---
 
-## 二、文件一览（共 172 个用例）
+## 二、文件一览（共 200 个用例）
 
 | 文件 | 用例数 | 覆盖内容 |
 | --- | ---: | --- |
 | `test_contracts.py` | 38 | **离线静态契约**：路由/模板清单、三层异常分层、Jinja `.items` 陷阱、密码哈希、结果标志自动判定、单号唯一性、已下线功能守卫 |
+| `test_triage.py` | 28 | **智能分诊离线用例**：归一化与同义词折叠、双向最大匹配、跨词边界假词回归、余弦相似度、64 条明确病例 Top1、10 条模糊主诉 Top3、结果结构与空输入边界 |
 | `test_admin_and_lab.py` | 56 | 科室 / 用户 / 公告 / 药品字典维护，**检验科全流程**（开单→收费→录结果→作废），诊断维护，报表与 CSV 导出 |
 | `test_patients_and_registration.py` | 23 | 患者建档（唯一性、外键保护、检索）、挂号/退号/号源、排班冲突与停诊 |
 | `test_consultation_and_records.py` | 23 | 医生接诊工作台（开始/完成接诊）、门诊病历保存与打印、检验开单关联挂号、体征内联录入 |
@@ -68,14 +69,18 @@ python init_database.py
 
 | 契约项 | 期望值 | 说明 |
 | --- | ---: | --- |
-| `@app.route` 装饰器数 | 34 | `/consultation` 有两个装饰器指向同一视图 |
-| `url_map` 规则数 | 35 | 含 Flask 自动注册的 `/static/<path:filename>` |
-| endpoint 数 | 34 | 含 `static` 与 6 个小程序 API（`/api/mini/*`） |
-| 支持 POST 的 endpoint 数 | 19 | 其中 2 个是小程序 JSON 接口 |
-| 写路由数（排除只读 `/login`） | 18 | |
+| `@app.route` 装饰器数 | 35 | `/consultation` 有两个装饰器指向同一视图 |
+| `url_map` 规则数 | 36 | 含 Flask 自动注册的 `/static/<path:filename>` |
+| endpoint 数 | 35 | 29 个后台端点 + 6 个小程序 API（`/api/mini/*`） |
+| 支持 POST 的 endpoint 数 | 20 | 其中 2 个是小程序 JSON 接口 |
+| 写路由数（排除只读 `/login` 与纯计算的 `/api/triage`） | 18 | |
 | 模板文件数 | 22 | 且每个 `render_template("x.html")` 都必须真实存在 |
 | 有数据库异常兜底（第 1+2 层）的写路由 | 18 / 18 | |
 | 有第三层参数异常兜底（`KeyError/TypeError/ValueError`）的写路由 | 17 | 唯一例外是 `lab_results` |
+
+> **为什么 `/api/triage` 不算写路由**：它只做向量计算，完全不碰数据库，
+> 因此既不需要 DB 异常分层，也不该被算进「18 个写路由」。
+> 它在 `ExceptionLayeringTests.READ_ONLY_POST` 里与 `/login` 一起被豁免。
 
 > **CSRF 与测试客户端**：生产环境所有表单 POST 都要带 CSRF token（由 `base.html`
 > 里的脚本自动注入 hidden 字段）。Flask 测试客户端是「直接 POST」，没有那段脚本，

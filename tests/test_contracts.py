@@ -25,11 +25,11 @@ TEMPLATE_DIR = WEB_APP_DIR / "templates"
 
 # 与 README「项目规模」表一致的对外口径
 # 2026-10-23 更新：补入小程序线上挂号 API（6 个端点，其中 2 个 POST）后的实际规模
-EXPECTED_DECORATORS = 34
-EXPECTED_RULES = 35            # 34 条 @app.route + Flask 自动注册的 /static/<path>
-EXPECTED_ENDPOINTS = 34        # 28 个后台端点 + 6 个小程序 API + static
-EXPECTED_POST_ENDPOINTS = 19   # 含只读表单的 /login
-EXPECTED_WRITE_ROUTES = 18     # 排除 /login
+EXPECTED_DECORATORS = 35
+EXPECTED_RULES = 36            # 35 条 @app.route + Flask 自动注册的 /static/<path>
+EXPECTED_ENDPOINTS = 35        # 29 个后台端点 + 6 个小程序 API
+EXPECTED_POST_ENDPOINTS = 20   # 含只读表单的 /login 与纯计算的 /api/triage
+EXPECTED_WRITE_ROUTES = 18     # 排除 /login 与 /api/triage（两者都不写库）
 EXPECTED_TEMPLATES = 22
 
 
@@ -90,7 +90,9 @@ class RouteInventoryTests(unittest.TestCase):
         self.assertEqual(len(post_endpoints), EXPECTED_POST_ENDPOINTS, "含 POST 的端点数")
         # 16 个写路由 / 17 个含 POST 端点（差值即只读表单 /login）
         self.assertIn("login", post_endpoints)
-        self.assertEqual(len(post_endpoints) - 1, EXPECTED_WRITE_ROUTES)
+        # 20 个 POST 端点 - /login（只读表单）- /api/triage（纯向量计算，不写库）
+        self.assertEqual(len(post_endpoints) - 2, EXPECTED_WRITE_ROUTES,
+                         "写路由数 = POST 端点数 - 2（/login 与 /api/triage）")
 
     def test_consultation_two_rules_one_view(self):
         """/consultation 与 /consultation/<id> 共用同一个视图函数。"""
@@ -133,7 +135,7 @@ class TemplateTests(unittest.TestCase):
 class ExceptionLayeringTests(unittest.TestCase):
     """所有写路由必须套用「三层捕获」且顺序不可颠倒。"""
 
-    READ_ONLY_POST = {"login"}   # 只读取表单，不需要写库异常分支
+    READ_ONLY_POST = {"login", "api_triage"}   # 只读表单 / 纯计算接口，不写库
 
     @classmethod
     def setUpClass(cls):

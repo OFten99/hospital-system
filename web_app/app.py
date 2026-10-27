@@ -29,6 +29,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import (call_proc, call_proc_scalar, close_request_connections, execute,
                 execute_atomic, fetch_all, fetch_one, get_connection)
+from triage import suggest as triage_suggest
 
 
 # 模板与静态资源目录按「本文件所在目录」定位，
@@ -1168,6 +1169,43 @@ def registrations():
     )
     return render_template("registrations.html", rows=rows, patients=patients_rows,
                            schedules=schedules, reg_date=reg_date)
+
+
+@app.route("/api/triage", methods=["POST"])
+@login_required
+def api_triage():
+    """症状描述 -> 科室相似度推荐。
+
+    只做向量计算，**不读写数据库**，因此没有 DB 异常分支；
+    这也是它被排除在「18 个写路由」之外的原因（见 tests/test_contracts.py）。
+
+    为什么用 POST 而不是 GET：症状描述属于患者健康信息，放进 URL 会被
+    服务器访问日志、浏览器历史和 Referer 头带走。POST + 请求体可以避免这一点。
+    """
+    if not role_allowed("registrations"):
+        return jsonify({"ok": False, "msg": "当前角色无权使用智能分诊。"}), 403
+
+    symptoms = (request.form.get("symptoms") or "").strip()
+    if not symptoms and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        symptoms = str(payload.get("symptoms") or "").strip()
+
+    if not symptoms:
+        return jsonify({"ok": False, "msg": "请先填写症状描述。"}), 400
+    if len(symptoms) > 200:
+        return jsonify({"ok": False, "msg": "症状描述请控制在 200 字以内。"}), 400
+
+    result = triage_suggest(symptoms, top_k=3)
+    return jsonify({
+        "ok": True,
+        "query": result["query"],
+        "normalized": result["normalized"],
+        "tokens": result["tokens"],
+        "confidence": result["confidence"],
+        "advice": result["advice"],
+        "suggestions": result["suggestions"],
+        "all": result["all"],
+    })
 
 
 # ============================================================

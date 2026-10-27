@@ -10,6 +10,20 @@
 
 <div class="form-card wide-form">
   <h2>办理挂号</h2>
+
+  <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:18px;background:#f8fafc">
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <label style="flex:1 1 320px;min-width:220px">症状描述（可选，按相似度推荐科室）
+        <input type="text" id="triageInput" maxlength="200" autocomplete="off"
+               placeholder="例如：孩子发烧38度5一直哭 / 牙疼得晚上睡不着">
+      </label>
+      <button type="button" id="triageBtn">智能推荐科室</button>
+      <button type="button" id="triageReset"
+              style="background:#fff;color:#475569;border:1px solid #cbd5e1">清除筛选</button>
+    </div>
+    <div id="triageResult" style="margin-top:10px"></div>
+  </div>
+
   <form method="post" class="form-grid">
     <input type="hidden" name="action" value="register">
     <label>患者
@@ -27,7 +41,7 @@
       <select name="schedule_id" required>
         <option value="">-- 选择医生排班 --</option>
         {% for s in schedules %}
-        <option value="{{ s.schedule_id }}">{{ s.department_name }} · {{ s.doctor_name }}（{{ s.title }}）{{ s.shift_type }} {{ s.clinic_room or '待分配诊室' }}，剩{{ s.remain }}号，挂号费{{ '%.2f'|format(s.consultation_fee) }}元</option>
+        <option value="{{ s.schedule_id }}" data-dept="{{ s.department_name }}">{{ s.department_name }} · {{ s.doctor_name }}（{{ s.title }}）{{ s.shift_type }} {{ s.clinic_room or '待分配诊室' }}，剩{{ s.remain }}号，挂号费{{ '%.2f'|format(s.consultation_fee) }}元</option>
         {% endfor %}
       </select>
     </label>
@@ -87,4 +101,130 @@
     </table>
   </div>
 </div>
+
+<script>
+(function () {
+  "use strict";
+  var TOKEN = {{ csrf_token()|tojson }};
+  var CONF = { high: "高", medium: "中", low: "低" };
+  var input = document.getElementById("triageInput");
+  var btn = document.getElementById("triageBtn");
+  var resetBtn = document.getElementById("triageReset");
+  var box = document.getElementById("triageResult");
+  var sel = document.querySelector('select[name="schedule_id"]');
+  if (!input || !btn || !box || !sel) { return; }
+
+  // 统一用 textContent 构造节点：症状是自由文本，绝不能拼 innerHTML
+  function el(tag, style, text) {
+    var node = document.createElement(tag);
+    if (style) { node.setAttribute("style", style); }
+    if (text !== undefined) { node.textContent = text; }
+    return node;
+  }
+
+  function filterSchedule(dept) {
+    var visible = 0, first = null;
+    Array.prototype.forEach.call(sel.options, function (opt) {
+      if (!opt.value) { return; }
+      var keep = !dept || opt.getAttribute("data-dept") === dept;
+      opt.hidden = !keep;
+      opt.disabled = !keep;
+      opt.style.display = keep ? "" : "none";
+      if (keep) { visible += 1; if (!first) { first = opt; } }
+    });
+    sel.value = first ? first.value : "";
+    return visible;
+  }
+
+  function render(data) {
+    box.textContent = "";
+    if (!data || !data.ok) {
+      box.appendChild(el("div", "color:#b91c1c;font-size:13px",
+        (data && data.msg) || "推荐失败，请重试。"));
+      return;
+    }
+    var rows = data.suggestions || [];
+    if (!rows.length) {
+      box.appendChild(el("div", "color:#b45309;font-size:13px", "暂无可用科室。"));
+      return;
+    }
+    var head = el("div", "font-size:13px;color:#475569;margin-bottom:6px");
+    head.textContent = "置信度（" + (CONF[data.confidence] || data.confidence) + "）：" + data.advice;
+    box.appendChild(head);
+
+    var maxPct = 1;
+    rows.forEach(function (s) { if (s.percent > maxPct) { maxPct = s.percent; } });
+
+    rows.forEach(function (s, idx) {
+      var row = el("div",
+        "display:grid;grid-template-columns:60px 1fr 44px 1.4fr;gap:10px;align-items:center;" +
+        "margin:6px 0;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:13px");
+      row.title = "点击按「" + s.name + "」筛选下方可用排班";
+      row.appendChild(el("strong", "color:#0f172a", s.name));
+
+      var track = el("div", "height:10px;border-radius:6px;background:#e5e7eb;overflow:hidden");
+      track.appendChild(el("div", "height:100%;border-radius:6px;" +
+        "width:" + Math.max(2, Math.round(s.percent / maxPct * 100)) + "%;" +
+        "background:" + (idx === 0 ? "#2563eb" : "#93c5fd")));
+      row.appendChild(track);
+
+      row.appendChild(el("span", "color:#334155;text-align:right", s.percent + "%"));
+      row.appendChild(el("span", "color:#64748b;font-size:12px",
+        s.hits && s.hits.length ? "命中：" + s.hits.join("、") : "仅描述相似，无关键词命中"));
+
+      row.addEventListener("click", function () {
+        if (filterSchedule(s.name) === 0) {
+          filterSchedule("");
+          alert("「" + s.name + "」今日暂无可用排班，已恢复显示全部排班。");
+          return;
+        }
+        Array.prototype.forEach.call(box.children, function (node) {
+          node.style.background = "";
+        });
+        row.style.background = "#dbeafe";
+      });
+      box.appendChild(row);
+    });
+  }
+
+  function ask() {
+    var text = (input.value || "").trim();
+    if (!text) {
+      box.textContent = "";
+      box.appendChild(el("div", "color:#b45309;font-size:13px", "请先填写症状描述。"));
+      return;
+    }
+    var body = new FormData();
+    body.append("symptoms", text);
+    btn.disabled = true;
+    btn.textContent = "计算中…";
+    fetch("{{ url_for('api_triage') }}", {
+      method: "POST",
+      headers: { "X-CSRF-Token": TOKEN },
+      body: body,
+      credentials: "same-origin"
+    }).then(function (resp) {
+      if (!resp.ok) {
+        return resp.json().catch(function () { return { ok: false, msg: "请求被拒绝（" + resp.status + "）" }; });
+      }
+      return resp.json();
+    }).then(render).catch(function () {
+      render({ ok: false, msg: "网络异常，请稍后重试。" });
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = "智能推荐科室";
+    });
+  }
+
+  btn.addEventListener("click", ask);
+  input.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") { event.preventDefault(); ask(); }
+  });
+  resetBtn.addEventListener("click", function () {
+    filterSchedule("");
+    input.value = "";
+    box.textContent = "";
+  });
+})();
+</script>
 {% endblock %}

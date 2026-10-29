@@ -20,7 +20,7 @@ if not defined PY goto NOPY
 "%PY%" -c "import mysql.connector" >nul 2>&1
 if errorlevel 1 goto NODEP
 
-"%PY%" demo_prep.py
+"%PY%" scripts\demo_prep.py
 if errorlevel 1 goto FAILED
 
 echo.

@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-OUT = Path(__file__).resolve().parent / "docs" / "黑盒测试用例_医院门诊管理系统.xlsx"
+OUT = Path(__file__).resolve().parent.parent / "docs" / "测试" / "黑盒测试用例_医院门诊管理系统.xlsx"
 
 HEADERS = ["用例编号", "所属模块", "用例标题", "前置条件", "测试步骤", "预期结果", "优先级", "用例类型", "适用阶段", "关键词"]
 

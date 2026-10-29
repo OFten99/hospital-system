@@ -330,7 +330,36 @@ class AutoFlagTests(unittest.TestCase):
 
 
 class SampleTypeTests(unittest.TestCase):
-    """标本类型按检验项目类别推导（需要数据库读取项目字典）。"""
+    """标本类型按检验项目类别推导（需要数据库读取项目字典）。
+
+    这里**不写死项目 ID**：检验项目字典是随 07/08/09 号脚本一起灌进库的，
+    ID 会随种子数据增删而整体漂移（尿常规早期是 5、6 号，后来前面插入了血常规
+    项目就挪到了 11~14 号）。写死 ID 的断言会随着灌库脚本演进而失效，但
+    「尿常规→尿液、粪便常规→粪便、混选取多数」这条规则本身没有变。
+    所以按类别去库里取真实 ID，断言仍然针对规则。
+    """
+
+    @staticmethod
+    def _ids(category, limit=1):
+        """按类别取检验项目 ID（字符串形式，模拟表单提交）。"""
+        from tests.base import connect, DB_AVAILABLE
+        if not DB_AVAILABLE:
+            raise unittest.SkipTest("本地 MySQL 不可用")
+        conn = connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT item_id FROM lab_items WHERE item_category = %s "
+                "ORDER BY item_id LIMIT " + str(int(limit)),
+                (category,),
+            )
+            rows = [str(row[0]) for row in cursor.fetchall()]
+            cursor.close()
+        finally:
+            conn.close()
+        if len(rows) < limit:
+            raise unittest.SkipTest("库里缺少「%s」类检验项目" % category)
+        return rows
 
     def test_blood_default(self):
         from tests.base import DB_AVAILABLE
@@ -338,15 +367,16 @@ class SampleTypeTests(unittest.TestCase):
             self.skipTest("本地 MySQL 不可用")
         import app as app_module
         self.assertEqual(app_module.derive_sample_type([]), "血液")      # 空 → 默认
-        self.assertEqual(app_module.derive_sample_type(["1", "2"]), "血液")  # 血常规项
+        blood = self._ids("血常规", 2)
+        self.assertEqual(app_module.derive_sample_type(blood), "血液")   # 血常规项
 
     def test_urine_and_stool(self):
         from tests.base import DB_AVAILABLE
         if not DB_AVAILABLE:
             self.skipTest("本地 MySQL 不可用")
         import app as app_module
-        self.assertEqual(app_module.derive_sample_type(["5"]), "尿液")   # 尿蛋白（尿常规）
-        self.assertEqual(app_module.derive_sample_type(["41"]), "粪便")  # 粪便隐血（粪便常规）
+        self.assertEqual(app_module.derive_sample_type(self._ids("尿常规")), "尿液")
+        self.assertEqual(app_module.derive_sample_type(self._ids("粪便常规")), "粪便")
 
     def test_mixed_takes_majority(self):
         from tests.base import DB_AVAILABLE
@@ -354,7 +384,8 @@ class SampleTypeTests(unittest.TestCase):
             self.skipTest("本地 MySQL 不可用")
         import app as app_module
         # 1 项血常规 + 2 项尿常规 → 取项目数最多的「尿常规」
-        self.assertEqual(app_module.derive_sample_type(["1", "5", "6"]), "尿液")
+        mixed = self._ids("血常规", 1) + self._ids("尿常规", 2)
+        self.assertEqual(app_module.derive_sample_type(mixed), "尿液")
 
 
 class BusinessNumberTests(unittest.TestCase):

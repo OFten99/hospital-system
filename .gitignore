@@ -27,6 +27,12 @@ my_his.cnf
 my_cloud_db.cnf
 .env
 
+# LLM 供应商凭据与调用缓存（key 与模型返回，禁止上传）
+.deepseek_key
+my_deepseek.cnf
+eval/.llm_cache.json
+eval/.llm_cache_oov.json
+
 # 会话密钥（首次启动自动生成，等同于凭据，禁止上传）
 .his_secret_key
 

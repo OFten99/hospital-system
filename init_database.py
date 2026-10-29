@@ -127,27 +127,97 @@ def split_sql_statements(sql_text):
 
 
 def execute_sql_file(conn, sql_file: Path):
-    """在指定连接上执行一个 SQL 文件，返回执行的语句条数。"""
+    """在指定连接上执行一个 SQL 文件，返回执行的语句条数。
+
+    每条语句用**独立游标**、并且把结果集**读干净**（``nextset()``），
+    这两点都是为了不让连接跑飞——踩过的坑写在下面的注释里。
+    """
     sql_text = sql_file.read_text(encoding="utf-8-sig")
     statements = split_sql_statements(sql_text)
     if not statements:
         print(f"  [跳过] {sql_file.name}（没有可执行语句）")
         return 0
 
-    cursor = conn.cursor()
     count = 0
-    try:
-        for stmt in statements:
+    for stmt in statements:
+        cursor = conn.cursor()
+        try:
             cursor.execute(stmt)
             # 消费结果集（SELECT / CALL 等会产生结果集，
             # 不读完会导致 mysql.connector 报 Unread result found）
             if cursor.with_rows:
                 cursor.fetchall()
-            count += 1
-    finally:
-        cursor.close()
+            # 【重要】把剩余结果集也读干净。
+            # 10_appointment.sql 里 ``DROP PROCEDURE IF EXISTS xxx;`` 与紧跟其后的
+            # ``CREATE PROCEDURE`` 会被切成同一段（DELIMITER $$ 块内的 `;` 不作为
+            # 分隔符），发到服务端就是一条**多语句**。多语句会返回多个结果集，
+            # 只读第一个的话，剩余结果集留在连接里，后续语句的请求/响应就错位，
+            # 服务端报 "Got an error reading communication packets" 并掐断连接。
+            # 现象极具迷惑性：init 打印「全部成功」，库里却少了存储过程
+            # （sp_charge / sp_record_lab_result 等），收费、检验录入一用就报
+            # 「数据库操作失败」；再跑一次又可能只丢另外几条。
+            while cursor.nextset():
+                pass
+        finally:
+            cursor.close()
+        count += 1
     print(f"  [完成] {sql_file.name}（{count} 条语句）")
     return count
+
+
+PROCEDURE_RE = re.compile(r"^\s*CREATE\s+PROCEDURE\s+`?(\w+)`?", re.IGNORECASE)
+
+
+def expected_procedures(sql_dir: Path, files):
+    """从 SQL 文件里扫出所有 ``CREATE PROCEDURE xxx``，得到应该存在的过程名单。"""
+    names = set()
+    for name in files:
+        for stmt in split_sql_statements((sql_dir / name).read_text(encoding="utf-8-sig")):
+            match = PROCEDURE_RE.match(stmt)
+            if match:
+                names.add(match.group(1).lower())
+    return names
+
+
+def verify_database(config, sql_dir: Path, files, db_name):
+    """收尾自检：脚本里定义的过程必须都真的建在库里。
+
+    没有这一步，驱动静默丢语句时脚本会"假成功"，问题要等到用户点收费才暴露。
+
+    用**独立的新连接**来查，不复用跑脚本的那条：跑完两百多条语句后，
+    那条连接带参数执行会抛出 ``Failed processing format-parameters``
+    （驱动内部状态已被前面的会话级语句弄脏），换新连接最省事也最可靠。
+
+    ``db_name`` 必须显式传：脚本的连接是不选库建立的（01 号脚本负责建库），
+    靠 SQL 里的 USE 切换，因此 ``DATABASE()`` 在这里不是可靠的值。
+    """
+    import mysql.connector
+
+    wanted = expected_procedures(sql_dir, files)
+    conn = mysql.connector.connect(**config)
+    try:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT LOWER(routine_name) FROM information_schema.routines "
+                "WHERE routine_schema = %s AND routine_type = 'PROCEDURE'",
+                (db_name,),
+            )
+            actual = {row[0] for row in cursor.fetchall()}
+        finally:
+            cursor.close()
+    finally:
+        conn.close()
+
+    missing = sorted(wanted - actual)
+    if missing:
+        print("-" * 60)
+        print("[错误] 以下存储过程没有建成功：" + "、".join(missing))
+        print("       通常是数据库连接在脚本执行中途被断开导致的。")
+        print("       请重新运行本脚本（可重复执行）；若反复失败，检查 MySQL 日志。")
+        return False
+    print(f"  [自检] 存储过程 {len(wanted)} 个，全部建库成功。")
+    return True
 
 
 def main():
@@ -210,6 +280,9 @@ def main():
     try:
         for name in SQL_FILES:
             execute_sql_file(conn, SQL_DIR / name)
+        # 收尾自检：SQL 里定义的过程必须真的落库，否则宁可报错也不"假成功"
+        if not verify_database(config, SQL_DIR, SQL_FILES, "hospital_outpatient"):
+            sys.exit(1)
         print("-" * 60)
         print("全部脚本执行成功！数据库 hospital_outpatient 已就绪。")
         print("测试账号（密码均为 123456）：")

@@ -142,8 +142,14 @@ class ConsultationWorkflowTests(HisTestCase):
 
     def test_order_lab_urine_sample_type(self):
         self._post("start")
+        # 尿常规的项目 ID 不写死：项目字典随灌库脚本演进而整体漂移
+        # （早期尿常规是 5 号，现在 5 号是血常规的「中性粒细胞百分比」）。
+        urine_id = self.one(
+            "SELECT item_id FROM lab_items WHERE item_category = '尿常规' "
+            "ORDER BY item_id LIMIT 1")["item_id"]
         self.doctor.post("/consultation", data={
-            "action": "order_lab", "registration_id": self.reg_id, "item_ids": ["5"],
+            "action": "order_lab", "registration_id": self.reg_id,
+            "item_ids": [str(urine_id)],
         }, follow_redirects=True)
         test = self.one("SELECT sample_type FROM lab_tests WHERE registration_id = %s",
                         (self.reg_id,))

@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-OUT = Path(__file__).resolve().parent / "docs" / "医院门诊管理系统需求分析.xmind"
+OUT = Path(__file__).resolve().parent.parent / "docs" / "需求" / "医院门诊管理系统需求分析.xmind"
 
 
 def tid():
@@ -87,7 +87,7 @@ def build():
         topic("测试方案（黑盒测试）", children=[
             topic("测试范围：登录权限、患者、挂号、排班、处方、收费退费、报表导出、数据一致性"),
             topic("方法：等价类划分、边界值分析、错误推测法"),
-            topic("测试用例：docs/黑盒测试用例_医院门诊管理系统.xlsx（50 条，禅道导入格式）"),
+            topic("测试用例：docs/测试/黑盒测试用例_医院门诊管理系统.xlsx（50 条，禅道导入格式）"),
             topic("自动化冒烟：verify_hospital.py（登录→挂号→开方→收费→退费→退号回归）"),
             topic("关键校验点：号源守恒、库存守恒、状态机流转、触发器日志、事务回滚"),
         ]),

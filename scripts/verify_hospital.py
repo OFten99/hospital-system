@@ -13,7 +13,8 @@ import urllib.request
 from pathlib import Path
 
 BASE = "http://127.0.0.1:5000"
-WEB_APP = Path(__file__).resolve().parent / "web_app"
+# 脚本放在 scripts/ 下，web_app 在仓库根，退一级
+WEB_APP = Path(__file__).resolve().parent.parent / "web_app"
 sys.path.insert(0, str(WEB_APP))
 from db import fetch_all, fetch_one  # noqa: E402
 

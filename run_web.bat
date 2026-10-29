@@ -14,6 +14,7 @@ if exist "C:\Users\60104\AppData\Local\Programs\Python\Python312\python.exe" set
 if not defined PY if exist "C:\Users\60104\AppData\Local\Programs\Python\Python313\python.exe" set "PY=C:\Users\60104\AppData\Local\Programs\Python\Python313\python.exe"
 if not defined PY if exist "C:\Program Files\Python312\python.exe" set "PY=C:\Program Files\Python312\python.exe"
 if not defined PY if exist "C:\Program Files\Python311\python.exe" set "PY=C:\Program Files\Python311\python.exe"
+if not defined PY where python >nul 2>&1 && set "PY=python"
 
 if not defined PY goto NOPY
 echo [1/4] Python: %PY%

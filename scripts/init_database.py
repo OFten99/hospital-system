@@ -33,7 +33,8 @@ import re
 import sys
 from pathlib import Path
 
-SQL_DIR = Path(__file__).resolve().parent / "sql"
+# 脚本放在 scripts/ 下，sql 目录在仓库根，所以要退一级
+SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
 SQL_FILES = [
     "01_create_database.sql",
     "02_create_tables.sql",

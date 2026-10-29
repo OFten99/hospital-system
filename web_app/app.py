@@ -31,6 +31,32 @@ from db import (call_proc, call_proc_scalar, close_request_connections, execute,
                 execute_atomic, fetch_all, fetch_one, get_connection)
 from triage import suggest as triage_suggest
 
+try:  # 抽取层是可选的：没配 Key、断网、模块缺失时，分诊退回纯规则照常工作
+    import llm_extract
+except Exception:  # pragma: no cover - 仅在依赖异常时触发
+    llm_extract = None
+
+
+def triage_extractor():
+    """决定这次请求要不要走 LLM 抽取。
+
+    三档控制（按优先级）：
+      TRIAGE_LLM=0   强制关闭，连探测都不做——演示要稳定时用这个；
+      TRIAGE_LLM=1   强制开启，探测不到供应商就退回规则（不报错）；
+      未设置         自动：配了 Key 或本地有 ollama 才启用。
+
+    抽不出来不算故障，只有「页面变卡」才算，所以这里探测失败一律返回 None。
+    """
+    if llm_extract is None:
+        return None
+    flag = (os.environ.get("TRIAGE_LLM") or "").strip()
+    if flag == "0":
+        return None
+    ok, _, _ = llm_extract.available()
+    if not ok and flag == "1":
+        return None
+    return llm_extract.extract if ok else None
+
 
 # 模板与静态资源目录按「本文件所在目录」定位，
 # 按多个候选路径依次探测，哪个目录里有模板就优先用哪个。
@@ -1195,14 +1221,22 @@ def api_triage():
     if len(symptoms) > 200:
         return jsonify({"ok": False, "msg": "症状描述请控制在 200 字以内。"}), 400
 
-    result = triage_suggest(symptoms, top_k=3)
+    result = triage_suggest(symptoms, top_k=3, extractor=triage_extractor())
     return jsonify({
         "ok": True,
         "query": result["query"],
         "normalized": result["normalized"],
         "tokens": result["tokens"],
+        "negated": result["negated"],
+        "subject": result["subject"],
         "confidence": result["confidence"],
+        "route": result["route"],
+        "emergency": result["emergency"],
+        "emergency_title": result["emergency_title"],
+        "emergency_advice": result["emergency_advice"],
+        "ask_back": result["ask_back"],
         "advice": result["advice"],
+        "extract": result.get("extract"),
         "suggestions": result["suggestions"],
         "all": result["all"],
     })

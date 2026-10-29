@@ -58,47 +58,61 @@
 start_mysql.bat
 
 # 2. 初始化数据库（一键执行 sql/01~15，可重复运行）
-python init_database.py
+python scripts/init_database.py
 
 # 3. 启动 Web
 run_web.bat   # 或 cd web_app && python app.py
 # 浏览器打开 http://127.0.0.1:5000
 
-# 4. 跑一遍自动化测试（可选，200 个用例）
+# 4. 跑一遍自动化测试（可选，215 个用例）
 run_tests.bat   # 或 python -m unittest discover -s tests -v
 
 # 5. 演示前先跑一次准备脚本，补当天排班 + 打印演示清单
 #    （挂号页只查当天排班，不补会卡住）
-demo_prep.bat   # 或 python demo_prep.py
+demo_prep.bat   # 或 python scripts/demo_prep.py
 ```
 ## 目录结构
 
 ```
-├── sql/                          # 数据库脚本（01 建库 ~ 07 测试数据，08 检验科+体征，09 任务书补全，10 预约挂号，11 公告，12 手机号可空，13 门诊病历，14 挂号统计口径修正，15 安全与性能修正）
-├── web_app/                      # Flask Web 后端（app.py + db.py + triage.py + 22 个模板 + 样式，本地开发源码）
-├── tests/                        # 自动化测试（200 个用例，标准库 unittest，零额外依赖）
-│   ├── base.py                   #   公共夹具：连接、登录、字典快照、测试数据构造与自清理
-│   ├── test_contracts.py         #   离线静态契约（路由/模板清单、异常分层、Jinja 陷阱、密码哈希…）
-│   ├── test_triage.py            #   离线分诊算法（64 条病例 Top1 + 10 条模糊主诉 Top3）
+医院信息系统设计开发/
+├── run_web.bat / run_tests.bat / start_mysql.bat / demo_prep.bat  # 启动入口，双击即可
+├── 运行说明.md                    # 详细运行与排错说明（比 README 更细）
+├── scripts/                       # 开发与运维脚本（统一在此，命令均在仓库根执行）
+│   ├── init_database.py           #   一键初始化数据库（内置 DELIMITER 解析，支持 --ssl）
+│   ├── check_env.py               #   环境自检（依赖 / MySQL / 建库是否完整）
+│   ├── verify_hospital.py         #   Web 端到端回归：登录→挂号→开方→收费→退费→退号
+│   ├── demo_prep.py               #   演示前准备：补当天排班 + 打印演示清单
+│   ├── eval_triage.py             #   分诊评测：三组基线 + 7 个指标 + 自动出报告
+│   ├── gen_testcases.py           #   生成黑盒测试用例 Excel
+│   └── gen_xmind.py               #   生成需求思维导图
+├── web_app/                       # Flask Web 后端
+│   ├── app.py / db.py             #   路由与数据访问
+│   ├── triage.py                  #   智能分诊引擎（868 行，纯标准库，含评测口径）
+│   ├── templates/                 #   22 个页面模板
+│   └── static/style.css           #   样式
+├── sql/                           # 数据库脚本（01 建库 ~ 15 安全与性能修正）
+├── tests/                         # 自动化测试（215 个用例，标准库 unittest）
+│   ├── base.py                    #   公共夹具：连接、登录、字典快照、测试数据构造与自清理
+│   ├── test_contracts.py          #   离线静态契约（路由/模板清单、异常分层、Jinja 陷阱…）
+│   ├── test_triage.py             #   分诊算法（否定 / 红旗 / 主体 / 路由，43 个用例）
 │   ├── test_auth_and_permissions.py        # 五角色登录与权限矩阵
 │   ├── test_patients_and_registration.py   # 建档 / 挂号 / 退号 / 排班
 │   ├── test_consultation_and_records.py    # 接诊工作台 / 门诊病历
 │   ├── test_prescription_payment_pharmacy.py  # 开方 / 收费 / 退费 / 发药
-│   ├── test_admin_and_lab.py     #   字典维护 / 检验科流程 / 诊断 / 报表导出
-│   └── README.md                 #   测试说明与接口契约清单
-├── docs/
-│   ├── screenshots/                     # 系统运行截图 10 张
-│   ├── 黑盒测试用例_医院门诊管理系统.csv   # 50 条黑盒用例（禅道导入格式，GBK）
-│   ├── 黑盒测试用例_医院门诊管理系统.xlsx  # 同上，Excel 版
-│   └── 医院门诊管理系统需求分析.xmind       # 需求思维导图
-├── 医院门诊管理系统-项目讲解稿.md / .docx   # 项目讲解稿与面试问答（本地资料，未纳入版本管理）
-├── init_database.py              # 一键初始化数据库（内置 DELIMITER 解析，支持 --ssl）
-├── check_env.py                  # 环境自检
-├── verify_hospital.py            # Web 端到端回归验证
-├── demo_prep.py / demo_prep.bat  # 演示前准备：补当天排班（挂号页只查当天）+ 打印演示清单
-├── gen_testcases.py / gen_xmind.py
-├── run_web.bat / start_mysql.bat / run_tests.bat
-└── 运行说明.md
+│   ├── test_admin_and_lab.py      #   字典维护 / 检验科流程 / 诊断 / 报表导出
+│   └── README.md                  #   测试说明与接口契约清单
+├── eval/                          # 分诊评测数据与结果
+│   ├── triage_eval_set.csv        #   独立评测集 165 条（8 列，带难例标签）
+│   └── report_triage.md           #   脚本自动生成的评测报告
+├── docs/                          # 文档
+│   ├── 智能分诊功能实现报告.html    #   分诊实现报告 v2（答辩主材料）
+│   ├── 测试/                      #   黑盒测试用例 csv / xlsx
+│   ├── 需求/                      #   需求分析思维导图
+│   ├── 参考/                      #   科室映射实测报告（真实接口跑出来的）
+│   ├── screenshots/               #   运行截图 10 张
+│   └── archive/                   #   历史版本（分诊报告 v1）
+├── miniapp/                       # 微信小程序（线上挂号）
+└── cloud-functions/               # 小程序云函数
 ```
 
 > 以下几项被 `.gitignore` 排除，克隆后不会存在，属正常现象：
@@ -121,14 +135,15 @@ demo_prep.bat   # 或 python demo_prep.py
 | Web 路由 | 35 个端点（35 条 `@app.route` 装饰器：`/consultation` 与 `/consultation/<id>` 共用一个视图）；**20 个端点含 POST**，其中 `/login` 只读表单、`/api/triage` 纯向量计算不写库，故 18 个是数据写入路由。另有 6 个小程序线上挂号 JSON API（`/api/mini/*`，无 session 登录态，独立限流与归属校验） |
 | 页面模板 | 22 |
 | 黑盒测试用例 | 50 |
-| 自动化测试用例 | 200（`tests/`，标准库 `unittest`，无需 pytest） |
+| 自动化测试用例 | 215（`tests/`，标准库 `unittest`，无需 pytest） |
+| 分诊评测集 | 165 条（`eval/`，独立于单元测试，含急症 18 条） |
 | `web_app/app.py` | 约 4000 行 |
-| `web_app/triage.py` | 约 500 行（智能分诊引擎：向量化 + 余弦相似度，纯标准库） |
+| `web_app/triage.py` | 约 870 行（智能分诊引擎：否定识别 + 11 条急症红旗 + 加权打分 + 四态路由） |
 | `web_app/db.py` | 约 400 行（请求级连接复用 + 查询封装 + 事务化写入 + OUT 参数调用） |
 
 ## 自动化测试
 
-`tests/` 下有一套 **200 个用例**的自动化测试，只用 Python 标准库 `unittest`，
+`tests/` 下有一套 **215 个用例**的自动化测试，只用 Python 标准库 `unittest`，
 不引入任何额外依赖：
 
 ```bash
@@ -234,14 +249,14 @@ except (KeyError, TypeError, ValueError) as error:       # ③ 必填项缺失�
 
 ## 禅道与黑盒测试
 
-`docs/黑盒测试用例_医院门诊管理系统.csv` 为 **50 条**黑盒用例（禅道导入格式，
+`docs/测试/黑盒测试用例_医院门诊管理系统.csv` 为 **50 条**黑盒用例（禅道导入格式，
 编码为 **GBK**，Excel 直接打开不乱码；用 UTF-8 打开会显示乱码，属正常现象）。
-同时提供 `docs/黑盒测试用例_医院门诊管理系统.xlsx` 便于查看。
+同时提供 `docs/测试/黑盒测试用例_医院门诊管理系统.xlsx` 便于查看。
 
 字段共 11 列：
 所属模块 / 用例标题 / 前置条件 / 步骤 / 预期 / 优先级 / 用例类型 / 适用阶段 / 关键词 / 用例状态 / 备注。
 
-对应脚本：`gen_testcases.py`（测试用例数据）、`gen_xmind.py`（需求思维导图）。
+对应脚本：`scripts/gen_testcases.py`（测试用例数据）、`scripts/gen_xmind.py`（需求思维导图）。
 
 
 ## 版权与使用许可

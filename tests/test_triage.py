@@ -274,5 +274,102 @@ class SimilarDepartmentTests(unittest.TestCase):
         self.assertTrue(any(v > 0 for v in values), "科室间相似度全为 0，排查工具失效")
 
 
+class NegationAndSafetyTests(unittest.TestCase):
+    """v2 三层：否定识别、急症红旗、主体识别。
+
+    这三类问题在 v1 里都是真实缺陷（否定词被当成主症状、心梗主诉给内科、
+    家属代述当成本人），下面的用例把它们钉死。
+    """
+
+    # ---- 否定 ----
+
+    def test_negated_symptom_excluded_from_scoring(self):
+        result = triage.suggest("不发烧，也不咳嗽，就是头晕")
+        self.assertIn("发热", result["negated"])
+        self.assertIn("咳嗽", result["negated"])
+        hits = [h for s in result["all"] for h in s["hits"]]
+        self.assertNotIn("发热", hits)
+        self.assertNotIn("咳嗽", hits)
+        self.assertIn("头晕", hits)
+
+    def test_negation_does_not_swallow_neighbour_symptom(self):
+        """否定作用域必须止于标点，"没有发烧，但是咳嗽" 里的咳嗽不能被否掉。"""
+        result = triage.suggest("没有发烧，但是咳嗽")
+        self.assertIn("发热", result["negated"])
+        self.assertNotIn("咳嗽", result["negated"])
+        hits = [h for s in result["all"] for h in s["hits"]]
+        self.assertIn("咳嗽", hits)
+
+    def test_negation_keeps_symptom_that_appears_twice(self):
+        """同一症状一处否定、一处肯定时，按肯定计入——不能因为出现过"没有"就全否。"""
+        result = triage.suggest("没有发烧，后来又开始发烧了")
+        self.assertNotIn("发热", result["negated"])
+
+    def test_normalize_still_returns_text_without_barrier(self):
+        self.assertNotIn("|", triage.normalize("头痛，，，发烧"))
+
+    # ---- 急症红旗 ----
+
+    def test_heart_attack_flagged(self):
+        for text in ("胸口疼，出冷汗，喘不上气", "胸痛 冒冷汗"):
+            result = triage.suggest(text)
+            self.assertTrue(result["emergency"], text)
+            self.assertEqual(result["route"], "emergency")
+            self.assertEqual(result["suggestions"], [], "急症不应再给普通科室排名")
+            self.assertIn("120", result["emergency_advice"])
+
+    def test_stroke_with_colloquial_right_side(self):
+        """老人说"右边手脚没劲"，不会说"半身无力"，红旗必须收口语表述。"""
+        result = triage.suggest("突然说话不利索，右边手脚没劲")
+        self.assertTrue(result["emergency"])
+        self.assertEqual(result["route"], "emergency")
+
+    def test_seizure_flagged(self):
+        self.assertTrue(triage.suggest("孩子发烧39度，抽了一下")["emergency"])
+
+    def test_red_flag_suppressed_by_negation(self):
+        """"没有胸痛，只是咳嗽" 不能触发心梗拦截。"""
+        result = triage.suggest("没有胸痛，只是有点咳嗽")
+        self.assertFalse(result["emergency"])
+        self.assertIn("胸痛", result["negated"])
+
+    def test_ordinary_cases_not_escalated(self):
+        """红旗不能泛滥：普通主诉一个都不许升级成急诊，否则导诊台会不信任系统。"""
+        for text in ("牙疼得睡不着", "腰疼得直不起来", "拉肚子拉了五天了",
+                     "眼睛红，流泪，怕光", "身上起疹子，特别痒",
+                     "我心慌胸闷三天了", "头疼头晕还有点想吐"):
+            self.assertFalse(triage.suggest(text)["emergency"], text)
+
+    # ---- 主体识别 ----
+
+    def test_family_dictation_detected(self):
+        result = triage.suggest("我妈发烧三天了，还咳嗽")
+        self.assertEqual(result["subject"]["type"], "family")
+        self.assertIn("家属代述", result["subject"]["hint"])
+
+    def test_child_subject_detected(self):
+        self.assertEqual(triage.suggest("孩子发烧38度5")["subject"]["type"], "child")
+
+    def test_self_subject_default(self):
+        self.assertEqual(triage.suggest("牙疼，牙龈出血")["subject"]["type"], "self")
+
+    # ---- 路由与追问 ----
+
+    def test_route_is_one_of_four(self):
+        for text in ("牙疼", "不发烧", "胸痛 冒冷汗", ""):
+            self.assertIn(triage.suggest(text)["route"],
+                          ("direct", "ask_more", "human", "emergency"))
+
+    def test_no_positive_symptom_returns_no_ranking(self):
+        """全是否定时不能硬凑一个科室出来。"""
+        result = triage.suggest("没有发烧，也没有咳嗽")
+        self.assertTrue(result["suggestions"] == [] or result["confidence"] == "low")
+
+    def test_ask_back_skips_denied_symptom(self):
+        result = triage.suggest("不发烧，就是头晕")
+        if result["ask_back"]:
+            self.assertNotIn("发热", result["ask_back"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

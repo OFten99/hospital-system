@@ -143,9 +143,35 @@
         (data && data.msg) || "推荐失败，请重试。"));
       return;
     }
+
+    // 急症优先：命中红旗时不给科室排名，只给急诊指引。
+    // 给心梗患者一个"内科 45%"比不给结果更危险。
+    if (data.emergency) {
+      var alertBox = el("div",
+        "border:1px solid #fecaca;background:#fef2f2;border-radius:8px;" +
+        "padding:10px 12px;margin:4px 0");
+      alertBox.appendChild(el("div",
+        "color:#991b1b;font-weight:600;font-size:14px;margin-bottom:4px",
+        "急症提示：" + (data.emergency_title || "发现危急信号")));
+      alertBox.appendChild(el("div", "color:#7f1d1d;font-size:13px;line-height:1.6",
+        data.emergency_advice || "请立即前往急诊。"));
+      alertBox.appendChild(el("div", "color:#991b1b;font-size:12px;margin-top:6px",
+        "已暂停科室推荐。如患者已在院内，请直接联系导诊台或急诊科。"));
+      box.appendChild(alertBox);
+      filterSchedule("");
+      return;
+    }
+
     var rows = data.suggestions || [];
+    var negated = data.negated || [];
+    if (negated.length) {
+      box.appendChild(el("div", "color:#0f766e;font-size:12px;margin-bottom:6px",
+        "已按否定处理：" + negated.join("、") + "（未计入症状）"));
+    }
+
     if (!rows.length) {
-      box.appendChild(el("div", "color:#b45309;font-size:13px", "暂无可用科室。"));
+      box.appendChild(el("div", "color:#b45309;font-size:13px;line-height:1.6",
+        data.ask_back || "暂无可用科室，请补充症状描述或到导诊台确认。"));
       return;
     }
     var head = el("div", "font-size:13px;color:#475569;margin-bottom:6px");
@@ -185,6 +211,15 @@
       });
       box.appendChild(row);
     });
+
+    if (data.ask_back) {
+      box.appendChild(el("div", "color:#b45309;font-size:12px;margin-top:8px;line-height:1.6",
+        "建议追问：" + data.ask_back));
+    }
+    if (data.subject && data.subject.hint) {
+      box.appendChild(el("div", "color:#64748b;font-size:12px;margin-top:4px",
+        data.subject.hint));
+    }
   }
 
   function ask() {

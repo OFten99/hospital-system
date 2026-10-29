@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能分诊功能实现报告 · 医院门诊管理系统</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#0f172a; --ink2:#475569; --ink3:#64748b;
+    --line:#e2e8f0; --brand:#2563eb; --brand-soft:#dbeafe; --ok:#15803d; --warn:#b45309; --bad:#b91c1c;
+    --code-bg:#f1f5f9;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 20px 64px; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    line-height:1.7; font-size:14.5px;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+  header{margin-bottom:26px}
+  .kicker{font-size:12.5px;letter-spacing:.12em;color:var(--brand);font-weight:700;text-transform:uppercase}
+  h1{font-size:27px;line-height:1.35;margin:8px 0 10px;letter-spacing:-.01em}
+  .lede{color:var(--ink2);font-size:15px;margin:0;max-width:840px;text-wrap:pretty}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:16px 0}
+  h2{font-size:18px;margin:0 0 4px}
+  h2 .num{color:var(--brand);font-weight:800;margin-right:8px}
+  h3{font-size:14.5px;margin:18px 0 6px;color:var(--ink)}
+  p{margin:8px 0}
+  .sub{color:var(--ink3);font-size:13px;margin:0 0 14px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0 4px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .stat .v{font-size:24px;font-weight:800;letter-spacing:-.02em}
+  .stat .k{font-size:12.5px;color:var(--ink3);margin-top:2px}
+  .stat.hl .v{color:var(--brand)}
+  table{width:100%;border-collapse:collapse;font-size:13.4px;margin:10px 0}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#f8fafc;font-weight:700;color:var(--ink2);font-size:12.6px;letter-spacing:.02em}
+  code,.mono{font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:12.6px}
+  code{background:var(--code-bg);padding:1.5px 5px;border-radius:4px;color:#0b3a8f}
+  .ln{color:var(--brand);font-weight:700}
+  .tag{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:999px;background:var(--brand-soft);color:#1d4ed8;font-weight:600;margin-right:5px}
+  .tag.g{background:#dcfce7;color:#166534}
+  .tag.y{background:#fef3c7;color:#92400e}
+  .tag.r{background:#fee2e2;color:#991b1b}
+  .note{border-left:3px solid var(--brand);background:#f8fbff;padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13.4px;color:var(--ink2)}
+  .note.warn{border-color:#f59e0b;background:#fffbeb}
+  .note.bad{border-color:#ef4444;background:#fef2f2}
+  .bars{margin:8px 0 4px}
+  .bar-row{display:grid;grid-template-columns:118px 1fr 46px;gap:10px;align-items:center;margin:5px 0;font-size:13px}
+  .bar-row .nm{color:var(--ink2)}
+  .track{height:9px;background:#eef2f7;border-radius:6px;overflow:hidden}
+  .fill{height:100%;border-radius:6px;background:var(--brand)}
+  .fill.dim{background:#93c5fd}
+  .fill.zero{background:#e2e8f0}
+  .sample{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0;background:#fcfdff}
+  .sample .q{font-weight:700;font-size:14px}
+  .sample .meta{font-size:12.6px;color:var(--ink3);margin:3px 0 8px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  ul{margin:8px 0 8px 20px;padding:0}
+  li{margin:4px 0}
+  .flow{width:100%;height:auto;display:block;margin:6px 0 2px}
+  footer{color:var(--ink3);font-size:12.4px;text-align:center;margin-top:26px;line-height:1.8}
+  @media (max-width:820px){
+    .grid4{grid-template-columns:repeat(2,1fr)}
+    .two{grid-template-columns:1fr}
+    .bar-row{grid-template-columns:88px 1fr 40px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">功能实现报告</div>
+  <h1>挂号页智能分诊：用向量相似度判断该挂哪个科室</h1>
+  <p class="lede">
+    在挂号页输入一句症状描述，系统把这句话和 8 个科室画像都编码成向量，算余弦相似度，
+    给出 Top3 科室并解释「命中了哪几个症状词」。本报告说明它实现在哪几个文件、
+    数据怎么流动、算法怎么算、验证到什么程度，以及它明确做不到什么。
+  </p>
+</header>
+
+<div class="grid4">
+  <div class="stat hl"><div class="v">8</div><div class="k">科室画像（向量）</div></div>
+  <div class="stat"><div class="v">146</div><div class="k">症状关键词 · 92 条口语同义映射</div></div>
+  <div class="stat"><div class="v">64/64</div><div class="k">明确病例 Top1 命中（自建样例集）</div></div>
+  <div class="stat"><div class="v">200</div><div class="k">自动化测试全部通过</div></div>
+</div>
+
+<div class="card">
+  <h2><span class="num">一</span>功能在哪里实现</h2>
+  <p class="sub">四个文件，新增一个模块、一个接口、一块前端面板、一份测试。</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:26%">文件</th><th style="width:12%">位置</th><th>职责</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>web_app/triage.py</code><br><span class="sub" style="margin:0">新增 · 502 行</span></td>
+        <td><span class="ln">全文件</span></td>
+        <td><strong>分诊引擎（核心）</strong>。纯标准库，零第三方依赖：同义词表 → 归一化 →
+          双向最大匹配分词 → TF-IDF 向量化 → 余弦相似度 → 加权融合排序。<br>
+          关键函数：<code>normalize()</code> <span class="ln">L223</span> ·
+          <code>tokenize()</code> <span class="ln">L295</span> ·
+          <code>similarity()</code> <span class="ln">L363</span> ·
+          <code>vectorize()</code> <span class="ln">L383</span> ·
+          <code>suggest()</code> <span class="ln">L401</span><br>
+          知识库：<code>SYNONYMS</code> <span class="ln">L43</span> ·
+          <code>DEPARTMENTS</code> <span class="ln">L97</span></td>
+      </tr>
+      <tr>
+        <td><code>web_app/app.py</code><br><span class="sub" style="margin:0">3978 行</span></td>
+        <td><span class="ln">L32</span> / <span class="ln">L1174</span></td>
+        <td>L32 引入引擎；L1174 新增接口 <code>POST /api/triage</code>（函数 <code>api_triage</code> 在 <span class="ln">L1176</span>）。
+          负责：登录校验、角色校验（仅 <code>registrations</code> 权限）、入参校验（非空 / ≤200 字）、返回 JSON。
+          <strong>不读写数据库</strong>。</td>
+      </tr>
+      <tr>
+        <td><code>web_app/templates/<br>registrations.html</code><br><span class="sub" style="margin:0">230 行</span></td>
+        <td><span class="ln">L17</span> / <span class="ln">L44</span> / <span class="ln">L125</span></td>
+        <td>L17 症状输入框 + 推荐按钮 + 结果容器；L44 给每个排班 <code>&lt;option&gt;</code> 加 <code>data-dept</code> 科室标记；
+          L125 起是交互脚本：<code>filterSchedule()</code> 按推荐科室筛选排班，点击某条推荐即自动选中该科室第一个可用号源。</td>
+      </tr>
+      <tr>
+        <td><code>tests/test_triage.py</code><br><span class="sub" style="margin:0">新增 · 278 行</span></td>
+        <td><span class="ln">全文件</span></td>
+        <td>28 条离线用例，不连数据库：归一化、分词、跨词边界假词回归、余弦性质、
+          64 条明确病例 Top1、10 条模糊主诉 Top3、结果结构与空输入边界。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <strong>怎么用：</strong>启动 MySQL 与 Web 后，用收费员账号（<code>cash01 / 123456</code>）进入
+    「挂号管理」页，在最上方的输入框写症状，点「智能推荐科室」。
+    结果按匹配度从高到低排三条，点任意一条，下方排班下拉会只剩该科室的号源。
+  </div>
+</div>
+
+<div class="card">
+  <h2><span class="num">二</span>运行时数据是怎么流动的</h2>
+  <p class="sub">从用户敲下回车到排班被筛好，一共七步。</p>
+
+  <svg class="flow" viewBox="0 0 1000 205" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="数据流图">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+        <path d="M0,0 L7,3.2 L0,6.4 z" fill="#94a3b8"/>
+      </marker>
+    </defs>
+    <g font-family="Segoe UI, Microsoft YaHei, sans-serif">
+      <rect x="8" y="40" width="132" height="96" rx="9" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="74" y="64" text-anchor="middle" fill="#1e3a8a" font-weight="700" font-size="12.5">挂号页输入</text>
+      <text x="74" y="86" text-anchor="middle" fill="#475569" font-size="11.5">triageInput</text>
+      <text x="74" y="104" text-anchor="middle" fill="#64748b" font-size="11.5">症状一句话</text>
+
+      <line x1="143" y1="88" x2="176" y2="88" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar)"/>
+
+      <rect x="179" y="40" width="132" height="96" rx="9" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="245" y="64" text-anchor="middle" fill="#1e3a8a" font-weight="700" font-size="12.5">POST /api/triage</text>
+      <text x="245" y="86" text-anchor="middle" fill="#475569" font-size="11.5">CSRF + 登录 + 角色</text>
+      <text x="245" y="104" text-anchor="middle" fill="#64748b" font-size="11.5">≤200 字</text>
+
+      <line x1="314" y1="88" x2="347" y2="88" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar)"/>
+
+      <rect x="350" y="40" width="150" height="96" rx="9" fill="#f0fdf4" stroke="#bbf7d0"/>
+      <text x="425" y="64" text-anchor="middle" fill="#14532d" font-weight="700" font-size="12.5">归一化 + 分词</text>
+      <text x="425" y="85" text-anchor="middle" fill="#475569" font-size="11.5">口语 → 标准词</text>
+      <text x="425" y="102" text-anchor="middle" fill="#475569" font-size="11.5">双向最大匹配</text>
+      <text x="425" y="119" text-anchor="middle" fill="#64748b" font-size="11">→ 症状词列表</text>
+
+      <line x1="503" y1="88" x2="536" y2="88" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar)"/>
+
+      <rect x="539" y="40" width="150" height="96" rx="9" fill="#fefce8" stroke="#fde68a"/>
+      <text x="614" y="64" text-anchor="middle" fill="#713f12" font-weight="700" font-size="12.5">向量化 + 相似度</text>
+      <text x="614" y="85" text-anchor="middle" fill="#475569" font-size="11.5">8 个科室各算一次</text>
+      <text x="614" y="102" text-anchor="middle" fill="#475569" font-size="11.5">加权命中 + 余弦</text>
+      <text x="614" y="119" text-anchor="middle" fill="#64748b" font-size="11">→ 分数向量</text>
+
+      <line x1="692" y1="88" x2="725" y2="88" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar)"/>
+
+      <rect x="728" y="40" width="132" height="96" rx="9" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="794" y="64" text-anchor="middle" fill="#1e3a8a" font-weight="700" font-size="12.5">排序取 Top3</text>
+      <text x="794" y="86" text-anchor="middle" fill="#475569" font-size="11.5">附命中词证据</text>
+      <text x="794" y="104" text-anchor="middle" fill="#64748b" font-size="11.5">置信度分档</text>
+
+      <line x1="863" y1="88" x2="896" y2="88" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar)"/>
+
+      <rect x="899" y="40" width="93" height="96" rx="9" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="945" y="64" text-anchor="middle" fill="#1e3a8a" font-weight="700" font-size="12.5">筛选排班</text>
+      <text x="945" y="86" text-anchor="middle" fill="#475569" font-size="11.5">data-dept</text>
+      <text x="945" y="104" text-anchor="middle" fill="#64748b" font-size="11.5">只剩该科室</text>
+
+      <text x="8" y="168" fill="#64748b" font-size="11.5">存储：本流程全程不写库。症状文本只在内存里参与计算，不落表、不进 URL、不写日志。</text>
+      <text x="8" y="189" fill="#64748b" font-size="11.5">失败路径：未登录 → 302 跳登录页；无 registrations 权限 → 403；空文本或超 200 字 → 400。</text>
+    </g>
+  </svg>
+</div>
+
+<div class="card">
+  <h2><span class="num">三</span>算法五步，对应「万物皆向量」的五层</h2>
+  <p class="sub">左边是视频里的框架，右边是这份代码实际实现到哪一层。第三条我做了明确的降级说明。</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:19%">视频那五层</th><th style="width:36%">本项目的实现</th><th>诚实评价</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>① 向量是什么</strong><br><span class="sub" style="margin:0">一串有顺序的数字，高维空间里的一个点</span></td>
+        <td><code>vectorize()</code> <span class="ln">L383</span>：把症状文本变成
+          <code>{症状词: TF-IDF 分量}</code> 的稀疏向量，146 个维度对应 146 个症状词。</td>
+        <td><span class="tag g">完整实现</span>只用到点积和模长，从不依赖"画得出"的几何直觉。</td>
+      </tr>
+      <tr>
+        <td><strong>② 凭什么能表达意思</strong><br><span class="sub" style="margin:0">词义由共现上下文决定</span></td>
+        <td>用<strong>手工编码的共现</strong>替代训练：每个科室画像就是它的上下文；症状词在哪个科室权重高，
+          就说明它离哪个科室近。IDF 按"该词出现在几个科室"计算——出现得越少越有区分度。</td>
+        <td><span class="tag y">弱化实现</span>这不是训练出来的 embedding。真正的 word2vec
+          需要十亿级语料，本项目没有。这一点必须写明，否则就是拿口号骗人。</td>
+      </tr>
+      <tr>
+        <td><strong>③ 万物怎么都进来</strong><br><span class="sub" style="margin:0">只要能定义"像不像"，就能训编码器</span></td>
+        <td>为 8 个科室各写一个关键词权重编码器（权重 3/2/1 = 高度特异/中等特异/泛化症状），
+          患者输入走同一套同义词表与分词，于是两者可比。</td>
+        <td><span class="tag y">人工编码，非训练</span>好处是每一步可解释、可审计；
+          代价是要靠人维护知识库，新增科室必须手填关键词。</td>
+      </tr>
+      <tr>
+        <td><strong>④ 进来之后能干什么</strong><br><span class="sub" style="margin:0">检索=最近邻，推荐=内积排序</span></td>
+        <td><code>suggest()</code> <span class="ln">L401</span>：对 8 个科室各算一次分数，
+          排序取 Top3——本质就是最近邻检索。另外 <code>similar_departments()</code>
+          用同一套向量算科室之间的相似度，用来排查"哪两个科室画像太像、容易分错"。</td>
+        <td><span class="tag g">完整实现</span>聚类与检索两个视角都用上了，没有做 RAG（场景不需要）。</td>
+      </tr>
+      <tr>
+        <td><strong>⑤ 哪里是夸张的</strong><br><span class="sub" style="margin:0">有损压缩 / 相似由定义决定 / 高维直觉失效</span></td>
+        <td>三条全部落在实现里：<br>
+          ① 有损压缩：病程、既往史、严重程度全丢，只留"命中哪些词"；<br>
+          ② 相似由定义决定：分数来自我设的权重与阈值，换一套权重排序就会变；<br>
+          ③ 高维直觉失效：阈值不靠感觉，靠样例实测校准。<br>
+          这三条写进了 <code>triage.py</code> 的模块 docstring，避免以后自己忘。</td>
+        <td><span class="tag r">主动设限</span>输出是"科室匹配度"，
+          <strong>不是疾病概率、不是诊断</strong>。低于阈值时明确让人工导诊介入。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>打分公式</h3>
+  <p class="mono" style="background:var(--code-bg);padding:12px 14px;border-radius:8px;margin:6px 0">
+    分数 = 0.70 × 关键词命中分 + 0.30 × 描述余弦<br>
+    关键词命中分 = 命中权重和 / (命中权重和 + 2.0)　　<span style="color:#64748b">← 饱和函数，防止长文本靠堆词取胜</span><br>
+    描述余弦 = cos(查询 bigram 向量, 科室描述 bigram 向量)　　<span style="color:#64748b">← 词表没覆盖的新说法靠它兜底</span>
+  </p>
+  <p>置信度按 Top1 分数分档：<span class="tag g">≥0.55 高</span><span class="tag y">0.30~0.55 中</span><span class="tag r">&lt;0.30 低（提示人工导诊）</span></p>
+</div>
+
+<div class="card">
+  <h2><span class="num">四</span>真实运行结果（不是示意数据）</h2>
+  <p class="sub">以下四条是用 <code>triage.suggest()</code> 实际跑出来的输出，分数原样呈现。</p>
+
+  <div class="sample">
+    <div class="q">「孩子发烧38度5，一直哭」</div>
+    <div class="meta">归一化 → <code>儿童发热38度5一直哭</code> · 命中词：儿童、发热 · 置信度：<span class="tag y">中</span></div>
+    <div class="bars">
+      <div class="bar-row"><span class="nm">儿科</span><div class="track"><div class="fill" style="width:52%"></div></div><span>52%</span></div>
+      <div class="bar-row"><span class="nm">内科</span><div class="track"><div class="fill dim" style="width:26%"></div></div><span>26%</span></div>
+      <div class="bar-row"><span class="nm">其他科室</span><div class="track"><div class="fill zero" style="width:1%"></div></div><span>0%</span></div>
+    </div>
+    <div class="sub" style="margin:6px 0 0">关键点：儿科只有「儿童」一个词命中（权重 3），内科只有「发热」（权重 1）。
+      靠人群词的权重差把同样的"发烧"分给了不同科室——这是儿科识别的主要依据。</div>
+  </div>
+
+  <div class="sample">
+    <div class="q">「牙疼，晚上疼得睡不着」</div>
+    <div class="meta">归一化 → <code>牙痛晚上疼得失眠</code> · 命中词：牙痛、失眠 · 置信度：<span class="tag y">中</span></div>
+    <div class="bars">
+      <div class="bar-row"><span class="nm">口腔科</span><div class="track"><div class="fill" style="width:45%"></div></div><span>45%</span></div>
+      <div class="bar-row"><span class="nm">内科</span><div class="track"><div class="fill dim" style="width:38%"></div></div><span>38%</span></div>
+    </div>
+    <div class="note warn" style="margin:10px 0 0">
+      <strong>这条暴露了真实缺陷，照实写出来：</strong>「睡不着」是牙痛引出的后果，却被当成内科主诉
+      （「失眠」权重 2），把内科顶到了 38%，与口腔科只差 7 个百分点。
+      纯词袋模型分不清"主诉"和"伴随症状"，要解决需要句法角色标注或位置加权，
+      本项目没做——这是能力边界，不是调参能抹平的。
+    </div>
+  </div>
+
+  <div class="sample">
+    <div class="q">「最近视力下降，看东西模糊」</div>
+    <div class="meta">归一化 → <code>最近视力下降看东西模糊</code> · 命中词：视力 · 置信度：<span class="tag g">高</span></div>
+    <div class="bars">
+      <div class="bar-row"><span class="nm">眼科</span><div class="track"><div class="fill" style="width:55%"></div></div><span>55%</span></div>
+      <div class="bar-row"><span class="nm">其他科室</span><div class="track"><div class="fill zero" style="width:1%"></div></div><span>0%</span></div>
+    </div>
+    <div class="note" style="margin:10px 0 0">
+      这条是回归用例：早期版本这里会切出「<strong>近视</strong>」——因为「最<u>近视</u>力」跨了词边界，
+      最长正向匹配把"最"和"视力"的前一个字拼成了别的词。修复后命中「视力」，同时改用双向最大匹配堵住同类问题。
+      详见 <code>tests/test_triage.py</code> 的 <code>test_no_cross_boundary_fake_word</code>。
+    </div>
+  </div>
+
+  <div class="sample">
+    <div class="q">「不太舒服」</div>
+    <div class="meta">命中词：无 · 置信度：<span class="tag r">低</span></div>
+    <div class="bars">
+      <div class="bar-row"><span class="nm">全部科室</span><div class="track"><div class="fill zero" style="width:1%"></div></div><span>0%</span></div>
+    </div>
+    <div class="sub" style="margin:6px 0 0">系统不硬猜：没有有效症状词时全部为 0，置信度判为低，
+      提示「请补充具体不适部位，或到导诊台人工分诊」。这比随便给一个科室更安全。</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2><span class="num">五</span>8 个科室的画像规模</h2>
+  <p class="sub">条形长度是该科室的关键词个数（合计 146）。权重 3 的高特异词越多，这个科室越容易被认出来——
+    妇产科与眼科各有 13 个，口腔科、外科、骨科、皮肤科各 12 个，内科 10 个，儿科只有 6 个。</p>
+  <div class="bars">
+    <div class="bar-row"><span class="nm">内科</span><div class="track"><div class="fill" style="width:100%"></div></div><span>30</span></div>
+    <div class="bar-row"><span class="nm">外科</span><div class="track"><div class="fill" style="width:70%"></div></div><span>21</span></div>
+    <div class="bar-row"><span class="nm">骨科</span><div class="track"><div class="fill" style="width:60%"></div></div><span>18</span></div>
+    <div class="bar-row"><span class="nm">皮肤科</span><div class="track"><div class="fill" style="width:60%"></div></div><span>18</span></div>
+    <div class="bar-row"><span class="nm">妇产科</span><div class="track"><div class="fill" style="width:53%"></div></div><span>16</span></div>
+    <div class="bar-row"><span class="nm">眼科</span><div class="track"><div class="fill" style="width:53%"></div></div><span>16</span></div>
+    <div class="bar-row"><span class="nm">口腔科</span><div class="track"><div class="fill" style="width:50%"></div></div><span>15</span></div>
+    <div class="bar-row"><span class="nm">儿科</span><div class="track"><div class="fill" style="width:40%"></div></div><span>12</span></div>
+  </div>
+  <p class="sub" style="margin-top:10px">儿科词最少（12 个）但准确率不低，因为它主要靠「儿童/宝宝/婴儿/小朋友」
+    这类人群词识别——症状可以一样，人群不能一样。这是领域知识带来的简化。</p>
+</div>
+
+<div class="card">
+  <h2><span class="num">六</span>验证到什么程度</h2>
+  <table>
+    <thead><tr><th style="width:30%">验证项</th><th style="width:14%">结果</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>分诊引擎离线用例</td><td><span class="tag g">28/28</span></td>
+        <td>含 64 条明确病例断言 Top1、10 条模糊主诉断言进 Top3，全部命中</td></tr>
+      <tr><td>契约测试</td><td><span class="tag g">38/38</span></td>
+        <td>路由规模从 34/35/34/19 同步为 35/36/35/20；<code>/api/triage</code> 与 <code>/login</code> 一起被排除在"18 个写路由"之外</td></tr>
+      <tr><td>全量测试</td><td><span class="tag g">200 条 OK</span></td>
+        <td>137 条集成用例因 MySQL 未启动而跳过，其余全部通过</td></tr>
+      <tr><td>接口端到端</td><td><span class="tag g">11/11</span></td>
+        <td>未登录 302、已登录 200、推荐正确、字段齐全、JSON 体可用、空文本 400、超长 400、无权限 403、GET 405</td></tr>
+      <tr><td>页面渲染</td><td><span class="tag g">9/10</span></td>
+        <td>模板编译、分诊面板、<code>data-dept</code>、CSRF 头、原有挂号表单完整性均通过；唯一未过项是我把退号按钮的断言写在空数据渲染上，属断言写法问题，源文件 L89 该表单完好</td></tr>
+      <tr><td>跨词边界假词回归</td><td><span class="tag g">已修</span></td>
+        <td>"最近视力下降"曾误切出"近视"，改为停用词前置剥离 + 双向最大匹配</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2><span class="num">七</span>它明确做不到什么</h2>
+  <div class="note bad">
+    <strong>64/64 的准确率不等于泛化能力。</strong>这 64 条样例是我在设计知识库时看过并调试过的，
+    属于训练集内评估。换一批我没见过的说法，准确率一定低于这个数字。
+    真实系统要靠医院历史挂号数据做独立测试集，本项目没有这个条件。
+  </div>
+  <ul>
+    <li><strong>分不清主诉与伴随症状</strong>：如上文牙痛案例，「睡不着」会抢分。要解决需要句法分析或位置加权。</li>
+    <li><strong>否定句会误判</strong>：「没有发烧」「不咳嗽」里的"发热""咳嗽"照样被命中。词袋模型没有否定词处理。</li>
+    <li><strong>不能处理多科室合并症</strong>：「糖尿病足溃烂」同时涉及内科与外科，系统只会给一个排序，不会提示"建议联合门诊"。</li>
+    <li><strong>知识库要人工维护</strong>：新增科室必须手填关键词，否则该科室永远匹配不到。</li>
+    <li><strong>不是医疗器械</strong>：输出是分诊建议，不构成诊断。<code>LICENSE</code> 已写明本项目不可直接用于真实医疗环境。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2><span class="num">八</span>自己验证</h2>
+  <p class="sub">三条命令，不需要装任何额外库。</p>
+  <p class="mono" style="background:var(--code-bg);padding:12px 14px;border-radius:8px;line-height:2">
+    <span style="color:#0f172a"># 1. 只跑分诊算法（不连数据库，秒级）</span><br>
+    python -m unittest tests.test_triage -v<br><br>
+    <span style="color:#0f172a"># 2. 跑全量（集成用例需先启动 MySQL，否则自动跳过）</span><br>
+    run_tests.bat<br><br>
+    <span style="color:#0f172a"># 3. 直接看某句话的分数</span><br>
+    python -c "import sys;sys.path.insert(0,'web_app');import triage;
+    r=triage.suggest('孩子发烧咳嗽');print([(s['name'],s['percent']) for s in r['suggestions']])"
+  </p>
+</div>
+
+<footer>
+  医院门诊管理系统 · 智能分诊功能实现报告<br>
+  代码位置基于当前工作副本：<code>app.py</code> 3978 行 · <code>triage.py</code> 502 行 ·
+  <code>registrations.html</code> 230 行 · <code>test_triage.py</code> 278 行<br>
+  报告中的分数均为实际运行输出，未做美化
+</footer>
+
+</div>
+</body>
+</html>

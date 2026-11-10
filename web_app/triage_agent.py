@@ -218,6 +218,26 @@ def chat(user_text, history=None, max_turns=5, timeout=DEFAULT_TIMEOUT):
         return result
 
     started = time.perf_counter()
+
+    # 0) 规则急症预检：急症红旗必须由规则引擎兜底，不依赖模型表现。
+    #    无论模型后面走哪条路，只要原文命中红旗，就直接返回急诊指引，
+    #    既省一次模型调用，也保证「心梗病人不等网络往返、不被模型漏判」。
+    try:
+        import triage
+        precheck = triage.suggest(user_text)
+        if precheck.get("emergency"):
+            result["ok"] = True
+            result["emergency"] = True
+            result["answer"] = "%s\n%s" % (
+                precheck.get("emergency_title", ""),
+                precheck.get("emergency_advice", ""),
+            )
+            result["tools_used"] = ["get_department"]
+            result["latency_ms"] = round((time.perf_counter() - started) * 1000.0, 1)
+            return result
+    except Exception:
+        # 预检失败不能阻断对话，降级为仅靠模型判断。
+        pass
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for h in (history or [])[-10:]:  # 只保留最近 10 条，控制上下文
         if h.get("role") in ("user", "assistant") and h.get("content"):

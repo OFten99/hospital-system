@@ -13,7 +13,7 @@
 --     * total_fee 只累加有效挂号的挂号费
 --     * cancelled_count 仍然单独给出退号笔数，便于对照
 --
--- 说明：这里沿用之前脚本的做法 —— 用 DROP ... IF EXISTS + CREATE 覆盖升级，
+-- 说明：这里沿用本项目既有约定 —— 用 DROP ... IF EXISTS + CREATE 覆盖升级，
 --       （不用 CREATE OR REPLACE），与 09/10/11/13 脚本保持一致。
 
 USE hospital_outpatient;

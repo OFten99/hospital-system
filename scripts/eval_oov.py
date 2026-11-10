@@ -166,7 +166,7 @@ def render_report(base_rows, llm_rows, set_path, n_cases, llm_enabled):
         add("主评测集（165 条，照词表构造）上 LLM 与纯规则持平，是因为规则本就没漏词；")
         add("这批 25 条是规则**真漏了**的句子，LLM 的增量在这里才显现出来。")
     else:
-        add("（这次没启用 LLM，只有纯规则基线。加 `--llm` 重跑能拿到对比。）")
+        add("（未启用 LLM，本报告只有纯规则基线。加 `--llm` 重跑可得到对比。）")
         add("")
         add("| 方案 | Top1 正确数 | Top1 准确率 |")
         add("| --- | --- | --- |")

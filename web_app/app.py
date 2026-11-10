@@ -187,7 +187,7 @@ elif _SECRET_SOURCE == "generated":
         "HIS 已生成新会话密钥并写入 %s（所有旧登录态失效，需重新登录一次）。", _SECRET_FILE)
 
 # 会话 cookie 加固：禁止 JS 读取、禁止跨站携带。
-# 全部是服务端渲染 + 同站表单提交，SameSite=Lax 不影响任何功能。
+# 本项目全部为服务端渲染 + 同站表单提交，SameSite=Lax 不影响任何功能。
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",

@@ -63,6 +63,11 @@ miniapp/project.config.json
 # 本地数据备份（角色/账号清理前后导出的 JSON，不上传）
 backups/
 
+# 原始病历/未脱敏医疗数据（只放本地，永不入库；知识库只用脱敏后的 md）
+data/raw/
+data/*.pdf
+data/**/*.pdf
+
 # 毕业论文、演示脚本（同上，含个人信息，不上传公开仓库）
 毕业论文/
 演示脚本.md
